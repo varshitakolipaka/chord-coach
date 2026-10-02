@@ -31,6 +31,8 @@
   .toggle{display:flex;align-items:center;gap:8px;font-size:15px}
   .toggle input{width:22px;height:22px}
   svg{width:100%;max-width:640px;height:auto;display:block;margin:0 auto}
+  #turn{font-size:22px;font-weight:700;margin-bottom:8px;min-height:28px}
+  #turn.you{color:var(--ok)} #turn.mag{color:var(--mel)}
   .legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;font-size:14px;color:var(--dim)}
   .legend i{display:inline-block;width:14px;height:14px;border-radius:3px;margin-right:6px;vertical-align:-2px}
 </style>
@@ -47,6 +49,11 @@
 </div>
 
 <div class="panel">
+  <div class="label">Mode</div>
+  <div class="chips" id="mode" style="margin-bottom:14px">
+    <div class="chip on" data-m="trade">🎹 Trade with me (you play, Magenta answers)</div>
+    <div class="chip" data-m="solo">Magenta solos</div>
+  </div>
   <div class="label">What to improvise over</div>
   <div class="chips" id="scope"></div>
 </div>
@@ -68,6 +75,7 @@
 
 <div class="panel">
   <div class="label">Now</div>
+  <div id="turn"></div>
   <div id="chord">—</div>
   <div id="bar"></div>
   <div id="note"></div>
@@ -234,16 +242,109 @@ function tick(){
   }
 }
 
+
+// =====================  TRADE MODE: you play 2 bars, Magenta answers 2 bars  =====================
+let mode = 'trade';
+document.querySelectorAll('#mode .chip').forEach(el => el.onclick = () => {
+  mode = el.dataset.m;
+  document.querySelectorAll('#mode .chip').forEach(x => x.classList.toggle('on', x === el));
+  if (playing) restart();
+});
+
+const UNIT = 32;                       // 2 bars of 16th-note steps
+let inputs = [], youNotes = [], youNow = new Set();
+if (navigator.requestMIDIAccess) {
+  navigator.requestMIDIAccess().then(a => {
+    const hook = () => { inputs = [...a.inputs.values()]; inputs.forEach(i => i.onmidimessage = onIn); };
+    a.onstatechange = hook; hook(); setInterval(hook, 3000);
+  }).catch(() => {});
+}
+function onIn(e){
+  const [st, p, v] = e.data, cmd = st & 0xf0, t = performance.now();
+  if (cmd === 0x90 && v > 0) { youNotes.push({p, on: t, off: null}); youNow.add(p); }
+  else if (cmd === 0x80 || (cmd === 0x90 && v === 0)) {
+    const n = [...youNotes].reverse().find(x => x.p === p && x.off === null); if (n) n.off = t;
+    youNow.delete(p);
+  } else return;
+  draw();
+}
+
+// chord for every step of one pass of the current section
+function stepChords(){
+  const out = []; section().forEach(c => { for (let i = 0; i < c.beats * SPQ; i++) out.push(c); }); return out;
+}
+let grid = [], t0 = 0, lastStep = -1, pending = [], genFor = -1;
+
+function fitRange(p){ while (p < 48) p += 12; while (p > 83) p -= 12; return p; }
+
+async function answer(unitStart){
+  // your phrase = notes played since the start of your 2 bars
+  const sm = stepMs(), youStart = t0 + (unitStart - UNIT) * sm;
+  const mine = youNotes.filter(n => n.on >= youStart - sm / 2)
+    .map(n => {
+      const s = Math.max(0, Math.min(UNIT - 1, Math.round((n.on - youStart) / sm)));
+      const e = Math.max(s + 1, Math.min(UNIT, Math.round(((n.off || performance.now()) - youStart) / sm)));
+      return {pitch: fitRange(n.p), quantizedStartStep: s, quantizedEndStep: e};
+    });
+  const seed = {notes: mine.length ? mine : [{pitch: 65, quantizedStartStep: 0, quantizedEndStep: 4}],
+                totalQuantizedSteps: UNIT, quantizationInfo: {stepsPerQuarter: SPQ}};
+  const prog = [];
+  for (let k = unitStart - UNIT; k < unitStart + UNIT; k++) prog.push(grid[((k % grid.length) + grid.length) % grid.length].mm);
+  try {
+    const out = await rnn.continueSequence(seed, UNIT, +$('temp').value, prog);
+    out.notes.forEach(n => {
+      pending.push({step: unitStart + n.quantizedStartStep, kind: 'on', p: n.pitch, len: n.quantizedEndStep - n.quantizedStartStep});
+      pending.push({step: unitStart + n.quantizedEndStep, kind: 'off', p: n.pitch});
+    });
+    pending.sort((a, b) => a.step - b.step);
+  } catch (err) { console.error(err); status('Magenta hit an error: ' + err.message, true); }
+}
+
+function tradeTick(){
+  const k = Math.floor((performance.now() - t0) / stepMs());
+  if (k === lastStep) return;
+  for (let step = lastStep + 1; step <= k; step++) {
+    const c = grid[step % grid.length], prevC = step > 0 ? grid[(step - 1) % grid.length] : null;
+    // chords: new chord or loop restart
+    if (step === 0 || c !== prevC || step % grid.length === 0) {
+      if (prevC) prevC.voicing.forEach(noteOff);
+      if ($('comp').checked) c.voicing.forEach(p => noteOn(p, 50, c.beats * 60 / +$('tempo').value));
+      curChord = c;
+    }
+    const unit = Math.floor(step / UNIT), inUnit = step % UNIT, theirs = unit % 2 === 1;
+    // start thinking an eighth-note before your 2 bars end, so the answer is on time
+    if (!theirs && inUnit === UNIT - 2 && genFor !== step + 2) { genFor = step + 2; answer(step + 2); }
+    if (inUnit === 0 && !theirs) { youNotes = youNotes.filter(n => n.off === null); }
+    $('turn').textContent = theirs ? '🤖 Magenta answers' : '🎹 Your turn — play a phrase';
+    $('turn').className = theirs ? 'mag' : 'you';
+    const beat = Math.floor(inUnit / SPQ) + 1;
+    $('bar').textContent = 'beat ' + beat + ' of 8 · chord tones: ' + [...c.pcs].map(sar).join(', ');
+  }
+  // Magenta's notes that are due (late ones still play, just immediately)
+  while (pending.length && pending[0].step <= k) {
+    const e = pending.shift();
+    if (e.kind === 'on') { noteOn(e.p, 96, e.len * stepMs() / 1000); curNote = e.p; }
+    else { noteOff(e.p); if (curNote === e.p) curNote = null; }
+  }
+  lastStep = k; draw();
+}
+
+function startTrade(){
+  grid = stepChords().map(c => c); t0 = performance.now() + 300; lastStep = -1; pending = []; genFor = -1; youNotes = [];
+  timer = setInterval(() => { if (performance.now() >= t0) tradeTick(); }, 8);
+}
+
 $('play').onclick = async () => {
   if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); await actx.resume(); } catch(e){} }
   playing = true; $('play').disabled = true; $('stop').disabled = false;
+  if (mode === 'trade') { status('Trading 2 bars each. You start.'); startTrade(); return; }
   status('Magenta is improvising…');
   timer = setInterval(tick, 10);
   startPass(performance.now() + 100);
 };
 function stop(){
   playing = false; clearInterval(timer); clearTimeout(nextPass); queue = [];
-  allOff(); curChord = null; curNote = null; draw();
+  allOff(); curChord = null; curNote = null; pending = []; $('turn').textContent = ''; draw();
   $('play').disabled = !rnn; $('stop').disabled = true; status();
 }
 $('stop').onclick = stop;
@@ -254,14 +355,15 @@ $('temp').oninput = () => $('tempV').textContent = (+$('temp').value).toFixed(1)
 // ---------- Display: fixed one octave, Sa to Sa ----------
 function draw(){
   $('chord').textContent = curChord ? curChord.name : '—';
-  $('bar').textContent = curChord ? 'bar ' + curChord.bar + ' · chord tones: ' + [...curChord.pcs].map(sar).join(', ') : '';
+  if (mode !== 'trade') $('bar').textContent = curChord ? 'bar ' + curChord.bar + ' · chord tones: ' + [...curChord.pcs].map(sar).join(', ') : '';
   $('note').textContent = curNote != null ? '♪ ' + sar(curNote % 12) + '  (' + WEST[curNote % 12] + ')' : '';
   const W = 46, H = 170, BW = 28, BH = 104, PAD = BW / 2 + 2;
   let whites = '', blacks = '', wi = 0;
   for (let n = 63; n <= 75; n++) {
     const pc = n % 12, mel = curNote != null && curNote % 12 === pc, ch = curChord && curChord.pcs.has(pc);
-    const fill = mel ? 'var(--mel)' : ch ? 'var(--want)' : (BLACK.has(pc) ? 'var(--black)' : 'var(--white)');
-    const txt = mel || ch ? '#111' : (BLACK.has(pc) ? '#ccc' : '#444');
+    const you = [...youNow].some(p => p % 12 === pc);
+    const fill = you ? 'var(--ok)' : mel ? 'var(--mel)' : ch ? 'var(--want)' : (BLACK.has(pc) ? 'var(--black)' : 'var(--white)');
+    const txt = you || mel || ch ? '#111' : (BLACK.has(pc) ? '#ccc' : '#444');
     const lbl = sar(pc).replace('komal ','k ').replace('tivra ','t ');
     if (!BLACK.has(pc)) {
       const x = PAD + wi * W;
@@ -275,7 +377,7 @@ function draw(){
     }
   }
   $('kb').innerHTML = `<svg viewBox="0 0 ${PAD*2+wi*W} ${H}">${whites}${blacks}</svg>
-    <div class="legend"><span><i style="background:var(--want)"></i>chord tones</span><span><i style="background:var(--mel)"></i>Magenta's note right now</span></div>`;
+    <div class="legend"><span><i style="background:var(--want)"></i>chord tones</span><span><i style="background:var(--ok)"></i>you</span><span><i style="background:var(--mel)"></i>Magenta</span></div>`;
 }
 draw();
 </script>
