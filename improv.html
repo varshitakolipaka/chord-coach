@@ -795,7 +795,7 @@ const PATTERNS = {
 };
 
 // ---- walking bass: root on the downbeat, chord tones in between, a half-step into the next chord ----
-let bassLast = 46;
+let bassLast = 46, lastBassChord = null;
 function nearestOct(pc, near){ let p = 40 + ((pc - 40) % 12 + 12) % 12; while (p + 12 <= 60 && Math.abs(p + 12 - near) < Math.abs(p - near)) p += 12; return p; }
 function bassLine(c, next, beats){
   const r = nearestOct(c.root, bassLast), tones = [...c.tones].map(pc => (pc - c.root + 12) % 12).sort((a, b) => a - b);
@@ -844,8 +844,16 @@ function bandTick(){
       const ms = bandT0 + warp(n + (pos - inBar)) * beatMs();
       if (ms > performance.now() - 20) drumHit(ms, inst, v * (0.9 + Math.random() * 0.2));
     });
+    // bass in chord-by-chord mode: follow whatever chord is sounding right now (root on 1, fifth on 3)
+    if (endMode === 'all' && mode === 'trade' && $('bassOn').checked && curChord && (inBar === 0 || inBar === 2)) {
+      const c = curChord, r = 40 + ((c.root - 40) % 12 + 12) % 12;
+      const fifth = [...c.tones].map(pc => (pc - c.root + 12) % 12).find(i => i === 7 || i === 6) ?? 7;
+      const p = inBar === 0 || c !== lastBassChord ? r : r + fifth;
+      lastBassChord = c;
+      bassHit(bandT0 + warp(n) * beatMs(), p > 60 ? p - 12 : p, beatMs() * 1.9);
+    }
     // bass: plan a chord's worth of notes when it starts
-    if (beat.first && $('bassOn').checked) {
+    else if (endMode !== 'all' && beat.first && $('bassOn').checked) {
       const next = bandBeats[(n + beat.len) % bandBeats.length].c;
       bassLine(beat.c, next, beat.len).forEach(([b, p, d]) => {
         const ms = bandT0 + warp(n + b) * beatMs();
