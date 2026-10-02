@@ -136,7 +136,12 @@
     <input id="bandVol" type="range" min="0" max="1.5" step="0.05" value="0.8">
     <span></span>
   </div>
-  <div class="sub" style="margin:8px 0 0">Drums and bass play through this device's speaker (on iPhone, turn the silent switch off). The Casio keeps the piano.</div>
+  <div class="row" style="margin:10px 0 0">
+    <label class="toggle"><input id="bandOut" type="checkbox"> Play the band on the keyboard</label>
+    <label class="toggle"><input id="bassTone" type="checkbox"> Bass sound (not piano)</label>
+    <button id="bandTest">Test on keyboard</button>
+  </div>
+  <div class="sub" style="margin:8px 0 0">Off: drums and bass come from this device's speaker (on iPhone, turn the silent switch off). On: everything comes out of the Casio, with drums on MIDI channel 10 and bass on channel 2.</div>
 </div>
 
 <div class="panel ctl">
@@ -233,7 +238,7 @@ function noteOn(p, v, dur){
   if ($('local').checked || !outs.length) synth(p, dur, v);
 }
 function noteOff(p){ outs.forEach(o => { try { o.send([0x80, p, 0]); } catch(e){} }); }
-function allOff(){ outs.forEach(o => { try { o.send([0xB0, 123, 0]); } catch(e){} }); }
+function allOff(){ outs.forEach(o => { try { [0xB0, 0xB1, 0xB9].forEach(c => o.send([c, 123, 0])); } catch(e){} }); }
 
 function status(msg, err){
   const el = $('status');
@@ -594,6 +599,34 @@ function bassNote(t, midi, dur){
   o.start(t); o2.start(t); o.stop(t + dur); o2.stop(t + dur);
 }
 
+// ---- or send the band to the keyboard over MIDI: drums on channel 10, bass on channel 2 ----
+const GM_DRUM = {ride: 51, hat: 44, kick: 36, brush: 38, rim: 37};
+const toKeys = () => $('bandOut').checked && outs.length > 0;
+function midiAt(ms, bytes){
+  const go = () => outs.forEach(o => { try { o.send(bytes); } catch (e) {} });
+  const d = ms - performance.now(); d <= 1 ? go() : setTimeout(go, d);
+}
+function drumHit(ms, inst, v){
+  if (toKeys()) { const n = GM_DRUM[inst], vel = Math.max(1, Math.min(127, Math.round(v * (inst === 'brush' ? 45 : 90))));
+    midiAt(ms, [0x99, n, vel]); midiAt(ms + 80, [0x89, n, 0]); return; }
+  DRUM[inst](Math.max(actx.currentTime, toAudio(ms)), v);
+}
+function bassHit(ms, midi, durMs){
+  if (toKeys()) { midiAt(ms, [0x91, midi, 88]); midiAt(ms + durMs * 0.92, [0x81, midi, 0]); return; }
+  bassNote(Math.max(actx.currentTime, toAudio(ms)), midi, durMs / 1000);
+}
+function bassTone(){ if (toKeys() && $('bassTone').checked) outs.forEach(o => { try { o.send([0xC1, 32]); } catch (e) {} }); }
+$('bandTest').onclick = () => {
+  if (!outs.length) { status('No keyboard found to test with.', true); return; }
+  const was = $('bandOut').checked; $('bandOut').checked = true; bassTone();
+  const t = performance.now() + 100, b = 60000 / 100;
+  [[0,'kick'],[0,'ride'],[1,'ride'],[1,'hat'],[1.5,'ride'],[2,'ride'],[2,'kick'],[3,'ride'],[3,'hat'],[3.5,'rim']]
+    .forEach(([x, i]) => drumHit(t + x * b, i, 1));
+  [[0,41],[1,45],[2,48],[3,49]].forEach(([x, n]) => bassHit(t + x * b, n, b * 0.9));
+  $('bandOut').checked = was;
+  status('Test sent: you should hear drums and a bass line from the keyboard.');
+};
+
 // ---- drum patterns: [beat position in the bar on the straight grid, instrument, loudness] ----
 const PATTERNS = {
   swing:  [[0,'ride',1],[1,'ride',1],[1.5,'ride',.7],[2,'ride',1],[3,'ride',1],[3.5,'ride',.7],
@@ -636,7 +669,8 @@ function bassLine(c, next, beats){
 let bandT0 = 0, bandBeats = [], bandNext = 0, bandTimer = null;
 function startBand(t0ms){
   stopBand();
-  if (style === 'none' || !audioReady()) return;
+  if (style === 'none' || (!audioReady() && !toKeys())) return;
+  bassTone();
   bandBeats = []; section().forEach(c => { for (let i = 0; i < c.beats; i++) bandBeats.push({c, first: i === 0, len: c.beats}); });
   bandT0 = t0ms; bandNext = 0; bassLast = 43;
   bandTimer = setInterval(bandTick, 25); bandTick();
@@ -651,14 +685,14 @@ function bandTick(){
     (PATTERNS[style] || []).forEach(([pos, inst, v]) => {
       if (Math.floor(pos) !== inBar) return;
       const ms = bandT0 + warp(n + (pos - inBar)) * beatMs();
-      if (ms > performance.now() - 20) DRUM[inst](Math.max(actx.currentTime, toAudio(ms)), v * (0.9 + Math.random() * 0.2));
+      if (ms > performance.now() - 20) drumHit(ms, inst, v * (0.9 + Math.random() * 0.2));
     });
     // bass: plan a chord's worth of notes when it starts
     if (beat.first) {
       const next = bandBeats[(n + beat.len) % bandBeats.length].c;
       bassLine(beat.c, next, beat.len).forEach(([b, p, d]) => {
         const ms = bandT0 + warp(n + b) * beatMs();
-        bassNote(Math.max(actx.currentTime, toAudio(ms)), p, d * beatMs() / 1000);
+        bassHit(ms, p, d * beatMs());
       });
     }
     bandNext++;
