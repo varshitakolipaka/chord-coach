@@ -166,6 +166,7 @@
       <div class="ctl">
         <label for="bandVol">Drums</label><input id="bandVol" type="range" min="0" max="1.5" step="0.05" value="0.8"><span></span>
         <label for="bassVol">Bass</label><input id="bassVol" type="range" min="0.3" max="1" step="0.05" value="1"><span></span>
+        <label for="sync">Drum sync</label><input id="sync" type="range" min="-100" max="300" step="10" value="60"><output id="syncV">60 ms</output>
       </div>
       <div class="row">
         <label class="toggle"><input id="bassOn" type="checkbox"> Walking bass</label>
@@ -179,6 +180,8 @@
       <div class="mini" style="margin-top:0">Magenta</div><div class="chips" id="tones-mel"></div>
       <div class="mini">Chords</div><div class="chips" id="tones-comp"></div>
       <div class="mini">Bass</div><div class="chips" id="tones-bass"></div>
+      <div class="mini">Atmosphere (holds the current chord)</div><div class="chips" id="tones-pad"></div>
+      <div class="ctl" style="margin-top:8px"><label for="padVol">Atmosphere</label><input id="padVol" type="range" min="0.2" max="1" step="0.05" value="0.6"><span></span></div>
     </section>
 
     <section class="stack">
@@ -257,7 +260,7 @@ function synth(pitch, dur, vel){
 }
 // Each part gets its own MIDI channel so it can have its own Casio tone.
 // Channel 1 is left alone: that's you playing the keyboard.
-const CH = {mel: 2, bass: 1, comp: 3};          // 0-based: Magenta = ch3, bass = ch2, chords = ch4
+const CH = {mel: 2, bass: 1, comp: 3, pad: 4};  // 0-based: Magenta = ch3, bass = ch2, chords = ch4, atmosphere = ch5
 function noteOn(p, v, dur, ch = CH.mel){
   outs.forEach(o => { try { o.send([0x90 | ch, p, v]); } catch(e){} });
   if ($('local').checked || !outs.length) synth(p, dur, v);
@@ -270,21 +273,23 @@ const TONES = {
   mel:  [['Stage Piano',0],['Vibraphone',44],['Jazz Organ',22],['CZ Trumpet',53],['Tape Flute',35],['Stage E.Piano',10],['CZ Violin',54],['Saw Lead',39]],
   bass: [['Bass/Piano',9],['CZ Bass',52],['VZ Bass',59],['Stage Piano',0]],
   comp: [['Stage Piano',0],['Stage E.Piano',10],['Jazz Organ',22],['Strings',42],['Vibraphone',44],['Guitar Pad',43]],
+  pad:  [['Off',-1],['Strings',42],['Synth Pad',37],['Piano Pad',1],['Synth Strings',38],['Choir',41],['Sound Track',48]],
 };
-const pick = {mel: 44, bass: 9, comp: 10};
-const PICK_VERSION = 2;   // bump to reset saved tones when defaults change
+const pick = {mel: 44, bass: 9, comp: 10, pad: 42};
+const PICK_VERSION = 3;   // bump to reset saved tones when defaults change
 try { const saved = JSON.parse(localStorage.getItem('improv-tones')) || {}; if (saved.v === PICK_VERSION) Object.assign(pick, saved); } catch (e) {}
 function sendTones(){
-  outs.forEach(o => { try { for (const part of ['mel','bass','comp']) {
+  outs.forEach(o => { try { for (const part of ['mel','bass','comp','pad']) { if (pick[part] < 0) continue;
     const c = CH[part]; o.send([0xB0 | c, 0, 2]); o.send([0xB0 | c, 32, 0]); o.send([0xC0 | c, pick[part]]);
-    o.send([0xB0 | c, 7, part === 'bass' ? Math.round(127 * +$('bassVol').value) : part === 'comp' ? 90 : 110]); o.send([0xB0 | c, 11, 127]); } } catch (e) {} });
+    o.send([0xB0 | c, 7, part === 'bass' ? Math.round(127 * +$('bassVol').value) : part === 'pad' ? Math.round(127 * +$('padVol').value) : part === 'comp' ? 90 : 110]); o.send([0xB0 | c, 11, 127]); } } catch (e) {} });
 }
 function renderTones(){
-  for (const part of ['mel','bass','comp']) {
+  for (const part of ['mel','bass','comp','pad']) {
     $('tones-' + part).innerHTML = TONES[part].map(([n, pc]) => `<div class="chip${pick[part] === pc ? ' on' : ''}" data-pc="${pc}">${n}</div>`).join('');
     $('tones-' + part).querySelectorAll('.chip').forEach(el => el.onclick = () => {
       pick[part] = +el.dataset.pc; try { localStorage.setItem('improv-tones', JSON.stringify({...pick, v: PICK_VERSION})); } catch (e) {}
       renderTones(); sendTones();
+      if (part === 'pad') { padChord = null; updatePad(); if (pick.pad < 0 || playing) return; }
       if (part !== 'bass') { const p = part === 'mel' ? 72 : 60; noteOn(p, 80, 0.4, CH[part]); setTimeout(() => noteOff(p, CH[part]), 400); }
       else { bassHit(performance.now(), 43, 400); }
     });
@@ -833,9 +838,11 @@ function startBand(t0ms){
   bandTimer = setInterval(bandTick, 25); bandTick();
 }
 function stopBand(){ clearInterval(bandTimer); bandTimer = null; }
-const toAudio = ms => actx.currentTime + (ms - performance.now()) / 1000;
+// The speaker adds its own delay; MIDI to the Casio doesn't. Start device sounds early by that delay (plus your sync nudge).
+const speakerDelay = () => ((actx.outputLatency || 0) + (actx.baseLatency || 0)) * 1000 + +$('sync').value;
+const toAudio = ms => actx.currentTime + (ms - speakerDelay() - performance.now()) / 1000;
 function bandTick(){
-  const horizon = performance.now() + 150;
+  const horizon = performance.now() + 150 + Math.max(0, speakerDelay());
   while (bandT0 + warp(bandNext) * beatMs() < horizon) {
     const n = bandNext, beat = bandBeats[n % bandBeats.length], inBar = n % 4;
     // drums for this beat
@@ -869,6 +876,8 @@ document.querySelectorAll('#style .chip').forEach(el => el.onclick = () => {
 });
 $('bandVol').oninput = () => { if (bandBus) bandBus.gain.value = +$('bandVol').value; };
 $('bassVol').oninput = () => sendTones();
+$('padVol').oninput = () => sendTones();
+$('sync').oninput = () => $('syncV').textContent = $('sync').value + ' ms';
 
 renderTones();
 try { actx = new (window.AudioContext || window.webkitAudioContext)(); loadKit(); } catch (e) {}
@@ -888,6 +897,7 @@ $('play').onclick = async () => {
   startPass(performance.now() + 100);
 };
 function stop(){
+  padNotes.forEach(p => noteOff(p, CH.pad)); padNotes = []; padChord = null;
   stopBand(); document.body.classList.remove('playing');
   playing = false; clearInterval(timer); clearTimeout(nextPass); queue = [];
   token++; allOff(); curChord = null; curNote = null; pending = []; magSounding.clear(); youNow.clear(); chordHand.clear(); tingedAt = -1; compNow.clear(); compSounding.clear(); $('turn').textContent = ''; draw();
@@ -902,7 +912,22 @@ $('maxBars').oninput = () => { if (+$('maxBars').value < +$('minBars').value) $(
 $('temp').oninput = () => $('tempV').textContent = (+$('temp').value).toFixed(1);
 
 // ---------- Display: fixed one octave, Sa to Sa ----------
+// ---------- Atmosphere: a soft pad holding whatever chord is sounding ----------
+let padChord = null, padNotes = [];
+function padVoicing(c){                     // all four chord tones, close together around G3–F#4
+  return [...c.tones].map(pc => 55 + ((pc - 55) % 12 + 12) % 12).sort((a, b) => a - b);
+}
+function updatePad(){
+  const want = playing && pick.pad >= 0 ? curChord : null;
+  if (want === padChord) return;
+  padNotes.forEach(p => noteOff(p, CH.pad)); padNotes = [];
+  padChord = want;
+  if (!want || !outs.length) return;
+  padNotes = padVoicing(want);
+  padNotes.forEach(p => outs.forEach(o => { try { o.send([0x90 | CH.pad, p, 52]); } catch (e) {} }));
+}
 function draw(){
+  updatePad();
   $('chord').textContent = curChord ? curChord.name : '—';
   if (mode !== 'trade') $('bar').textContent = curChord ? where(curChord) + '  ·  ' + [...curChord.pcs].map(sar).join(' · ') : '';
   $('note').textContent = curNote != null ? '♪ ' + sar(curNote % 12) + '  (' + WEST[curNote % 12] + ')' : '';
