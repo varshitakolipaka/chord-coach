@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Chord Coach</title>
 <style>
-  :root{--bg:#121214;--panel:#1d1d21;--text:#f2f0ea;--dim:#8e8b84;--accent:#f0b44c;--ok:#5fd38d;--bad:#e8664f;--white:#ecebe6;--black:#26262b}
+  :root{--bg:#121214;--panel:#1d1d21;--text:#f2f0ea;--dim:#8e8b84;--accent:#f0b44c;--ok:#5fd38d;--bad:#e8664f;--white:#ecebe6;--black:#26262b;--want:#f7d58c}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,sans-serif;padding:16px;max-width:1000px;margin:auto}
   h1{font-size:18px;font-weight:600;margin:0 0 4px}
@@ -31,12 +31,14 @@
   #playedAlt{font-size:14px;color:var(--dim)}
   #held{font-size:20px;margin-top:6px}
   #held .w{color:var(--dim);font-size:15px}
-  svg{width:100%;height:auto;display:block}
+  svg{width:100%;max-width:640px;height:auto;display:block;margin:0 auto}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   .go{background:var(--accent);color:#1a1405;border:none;font-weight:700}
   .meter{flex:1;min-width:120px;height:10px;background:#2c2c32;border-radius:5px;overflow:hidden}
   #lvl{height:100%;width:0;background:var(--ok);transition:width .08s}
   [hidden]{display:none!important}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;font-size:14px;color:var(--dim)}
+  .legend i{display:inline-block;width:14px;height:14px;border-radius:3px;border:2px solid transparent;margin-right:6px;vertical-align:-2px}
   @media(max-width:700px){.grid{grid-template-columns:1fr}#target{font-size:48px}}
 </style>
 </head>
@@ -206,34 +208,41 @@ function renderPlayed(){
     '<br><span class="w">' + notes.map(n => WEST[n%12]).join(', ') + '</span>';
 }
 
-// Two-octave keyboard from C3 (48) to B4 (71), shifts to follow your hand
-let kbLow = 48;
+// One fixed octave, Sa to Sa (E♭ to E♭). It never moves: whatever octave you
+// play in, each note lights its swara here, so you drill the same 12 positions.
+const KB_LO = 63, KB_HI = 75;   // E♭4 .. E♭5
 function renderKeyboard(){
-  const notes = [...held];
-  if (notes.length) {
-    const lo = Math.min(...notes), hi = Math.max(...notes);
-    if (lo < kbLow || hi > kbLow + 23) kbLow = Math.floor(lo / 12) * 12;
-  }
-  const target = new Set(SONG[idx].shell);
-  const W = 30, H = 130, BW = 18, BH = 80;
-  let whites = '', blacks = '', x = 0;
-  for (let n = kbLow; n < kbLow + 24; n++) {
-    const pc = n % 12, on = held.has(n), hint = target.has(pc);
-    const lbl = SARGAM[(pc - SA + 12) % 12].replace('komal ','k.').replace('tivra ','t.');
+  const pcs = heldPcs(), target = new Set(SONG[idx].shell);
+  const W = 46, H = 170, BW = 28, BH = 104, PAD = BW / 2 + 2;
+  let whites = '', blacks = '', wi = 0;
+  const style = pc => {
+    const on = pcs.has(pc), want = target.has(pc);
+    if (on && want)  return {fill: 'var(--ok)',  stroke: 'var(--ok)', txt: '#0b1a10'};
+    if (on && !want) return {fill: 'var(--bad)', stroke: 'var(--bad)', txt: '#fff'};
+    if (want)        return {fill: 'var(--want)', stroke: 'var(--accent)', txt: '#1a1405'};
+    return null;
+  };
+  for (let n = KB_LO; n <= KB_HI; n++) {
+    const pc = n % 12, st = style(pc);
+    const lbl = SARGAM[(pc - SA + 12) % 12].replace('komal ','k ').replace('tivra ','t ');
     if (!BLACK.has(pc)) {
-      const fill = on ? (matched ? 'var(--ok)' : 'var(--accent)') : 'var(--white)';
-      whites += `<rect x="${x*W}" y="0" width="${W-2}" height="${H}" rx="4" fill="${fill}" ${hint&&!on?'stroke="var(--accent)" stroke-width="3"':''}/>`;
-      whites += `<text x="${x*W+W/2-1}" y="${H-10}" font-size="10" text-anchor="middle" fill="#333">${lbl}</text>`;
-      x++;
+      const x = PAD + wi * W;
+      whites += `<rect x="${x}" y="0" width="${W-3}" height="${H}" rx="5" fill="${st ? st.fill : 'var(--white)'}" stroke="${st ? st.stroke : 'none'}" stroke-width="4"/>`;
+      whites += `<text x="${x + (W-3)/2}" y="${H-14}" font-size="12" font-weight="${st ? 700 : 500}" text-anchor="middle" fill="${st ? st.txt : '#444'}">${lbl}</text>`;
+      wi++;
     } else {
-      const bx = x*W - BW/2 - 1;
-      const fill = on ? (matched ? 'var(--ok)' : 'var(--accent)') : 'var(--black)';
-      blacks += `<rect x="${bx}" y="0" width="${BW}" height="${BH}" rx="3" fill="${fill}" ${hint&&!on?'stroke="var(--accent)" stroke-width="3"':''}/>`;
-      blacks += `<text x="${bx+BW/2}" y="${BH-8}" font-size="8" text-anchor="middle" fill="${on?'#111':'#bbb'}">${lbl}</text>`;
+      const x = PAD + wi * W - BW / 2 - 1.5;
+      blacks += `<rect x="${x}" y="0" width="${BW}" height="${BH}" rx="4" fill="${st ? st.fill : 'var(--black)'}" stroke="${st ? st.stroke : '#000'}" stroke-width="${st ? 4 : 1}"/>`;
+      blacks += `<text x="${x + BW/2}" y="${BH-12}" font-size="10" font-weight="700" text-anchor="middle" fill="${st ? st.txt : '#ccc'}">${lbl.replace(' ', '')}</text>`;
     }
   }
-  $('kb').innerHTML = `<svg viewBox="0 0 ${x*W} ${H}">${whites}${blacks}</svg>
-    <div class="sub" style="margin:8px 0 0">Outlined keys = the notes for the chord you should play next (any octave).</div>`;
+  const width = PAD * 2 + wi * W;
+  $('kb').innerHTML = `<svg viewBox="0 0 ${width} ${H}">${whites}${blacks}</svg>
+    <div class="legend">
+      <span><i style="background:var(--want);border-color:var(--accent)"></i>play this</span>
+      <span><i style="background:var(--ok)"></i>right note</span>
+      <span><i style="background:var(--bad)"></i>wrong note</span>
+    </div>`;
 }
 
 function render(){ renderTarget(); renderPlayed(); renderKeyboard(); renderChart(); }
