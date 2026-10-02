@@ -137,11 +137,18 @@
     <span></span>
   </div>
   <div class="row" style="margin:10px 0 0">
-    <label class="toggle"><input id="bandOut" type="checkbox"> Play the band on the keyboard</label>
-    <label class="toggle"><input id="bassTone" type="checkbox"> Bass sound (not piano)</label>
-    <button id="bandTest">Test on keyboard</button>
+    <label class="toggle"><input id="bandOut" type="checkbox" checked> Bass on the keyboard</label>
+    <button id="bandTest">Test bass</button>
   </div>
-  <div class="sub" style="margin:8px 0 0">Off: drums and bass come from this device's speaker (on iPhone, turn the silent switch off). On: everything comes out of the Casio, with drums on MIDI channel 10 and bass on channel 2.</div>
+  <div class="sub" style="margin:8px 0 0">Drums always come from this device's speaker (the Casio has no drum kit; on iPhone, turn the silent switch off). The bass plays on the Casio, or on this device if you untick it.</div>
+</div>
+
+<div class="panel">
+  <div class="label">Sounds on the Casio</div>
+  <div class="seq-sub" style="font-size:12px;color:var(--dim);margin:6px 0">Magenta's voice</div><div class="chips" id="tones-mel"></div>
+  <div class="seq-sub" style="font-size:12px;color:var(--dim);margin:10px 0 6px">Bass</div><div class="chips" id="tones-bass"></div>
+  <div class="seq-sub" style="font-size:12px;color:var(--dim);margin:10px 0 6px">Chords (when the app plays them)</div><div class="chips" id="tones-comp"></div>
+  <div class="sub" style="margin:8px 0 0">Your own playing keeps whatever tone the Casio is set to. Tap a sound to hear it.</div>
 </div>
 
 <div class="panel ctl">
@@ -220,7 +227,7 @@ function section(){                // the chords for one pass
 let outs = [];
 if (navigator.requestMIDIAccess) {
   navigator.requestMIDIAccess().then(a => {
-    const upd = () => { outs = [...a.outputs.values()]; status(); };
+    const upd = () => { const had = outs.length; outs = [...a.outputs.values()]; if (outs.length && !had) sendTones(); status(); };
     a.onstatechange = upd; upd(); setInterval(upd, 3000);
   }).catch(() => status());
 }
@@ -233,12 +240,39 @@ function synth(pitch, dur, vel){
   g.gain.exponentialRampToValueAtTime(0.001, t + Math.max(0.15, dur));
   o.connect(g).connect(actx.destination); o.start(t); o.stop(t + dur + 0.05);
 }
-function noteOn(p, v, dur){
-  outs.forEach(o => { try { o.send([0x90, p, v]); } catch(e){} });
+// Each part gets its own MIDI channel so it can have its own Casio tone.
+// Channel 1 is left alone: that's you playing the keyboard.
+const CH = {mel: 2, bass: 1, comp: 3};          // 0-based: Magenta = ch3, bass = ch2, chords = ch4
+function noteOn(p, v, dur, ch = CH.mel){
+  outs.forEach(o => { try { o.send([0x90 | ch, p, v]); } catch(e){} });
   if ($('local').checked || !outs.length) synth(p, dur, v);
 }
-function noteOff(p){ outs.forEach(o => { try { o.send([0x80, p, 0]); } catch(e){} }); }
-function allOff(){ outs.forEach(o => { try { [0xB0, 0xB1, 0xB9].forEach(c => o.send([c, 123, 0])); } catch(e){} }); }
+function noteOff(p, ch = CH.mel){ outs.forEach(o => { try { o.send([0x80 | ch, p, 0]); } catch(e){} }); }
+function allOff(){ outs.forEach(o => { try { for (let c = 0; c < 16; c++) o.send([0xB0 | c, 123, 0]); } catch(e){} }); }
+
+// ---------- Casio tones for each part (CT-S1 tone list: bank 2, program = tone number - 1) ----------
+const TONES = {
+  mel:  [['Stage Piano',0],['Vibraphone',44],['Jazz Organ',22],['CZ Trumpet',53],['Tape Flute',35],['Stage E.Piano',10],['CZ Violin',54],['Saw Lead',39]],
+  bass: [['CZ Bass',52],['VZ Bass',59],['Bass/Piano',9],['Stage Piano',0]],
+  comp: [['Stage Piano',0],['Stage E.Piano',10],['Jazz Organ',22],['Strings',42],['Vibraphone',44],['Guitar Pad',43]],
+};
+const pick = {mel: 44, bass: 52, comp: 10};
+try { Object.assign(pick, JSON.parse(localStorage.getItem('improv-tones')) || {}); } catch (e) {}
+function sendTones(){
+  outs.forEach(o => { try { for (const part of ['mel','bass','comp']) {
+    const c = CH[part]; o.send([0xB0 | c, 0, 2]); o.send([0xB0 | c, 32, 0]); o.send([0xC0 | c, pick[part]]); } } catch (e) {} });
+}
+function renderTones(){
+  for (const part of ['mel','bass','comp']) {
+    $('tones-' + part).innerHTML = TONES[part].map(([n, pc]) => `<div class="chip${pick[part] === pc ? ' on' : ''}" data-pc="${pc}">${n}</div>`).join('');
+    $('tones-' + part).querySelectorAll('.chip').forEach(el => el.onclick = () => {
+      pick[part] = +el.dataset.pc; try { localStorage.setItem('improv-tones', JSON.stringify(pick)); } catch (e) {}
+      renderTones(); sendTones();
+      if (part !== 'bass') { const p = part === 'mel' ? 72 : 60; noteOn(p, 80, 0.4, CH[part]); setTimeout(() => noteOff(p, CH[part]), 400); }
+      else { bassHit(performance.now(), 43, 400); }
+    });
+  }
+}
 
 function status(msg, err){
   const el = $('status');
@@ -365,8 +399,8 @@ function tick(){
   while (queue.length && queue[0].t <= now) {
     const e = queue.shift();
     if (e.kind === 'chord') { curChord = e.c; draw(); }
-    else if (e.kind === 'on') { noteOn(e.p, e.v, e.dur); if (e.mel) { curNote = e.p; draw(); } }
-    else { noteOff(e.p); if (e.mel && curNote === e.p) { curNote = null; draw(); } }
+    else if (e.kind === 'on') { noteOn(e.p, e.v, e.dur, e.mel ? CH.mel : CH.comp); if (e.mel) { curNote = e.p; draw(); } }
+    else { noteOff(e.p, e.mel ? CH.mel : CH.comp); if (e.mel && curNote === e.p) { curNote = null; draw(); } }
   }
 }
 
@@ -397,7 +431,7 @@ if (navigator.requestMIDIAccess) {
 }
 
 function silenceMagenta(){
-  pending = []; magSounding.forEach(noteOff); magSounding.clear(); curNote = null;
+  pending = []; magSounding.forEach(p => noteOff(p)); magSounding.clear(); curNote = null;
 }
 
 // Left hand (below middle C) plays the chord; right hand (middle C and up) plays your phrase.
@@ -421,7 +455,7 @@ function chordStruck(){
     tingedAt = at;
     const third = [...curChord.tones].find(pc => [3, 4].includes((pc - curChord.root + 12) % 12));
     const p = 84 + ((third - 84) % 12 + 12) % 12;    // two octaves up, C6–B6
-    noteOn(p, 72, 0.6); setTimeout(() => noteOff(p), 500);
+    noteOn(p, 72, 0.6, CH.mel); setTimeout(() => noteOff(p, CH.mel), 500);
   }
   const el = $('chord'); el.classList.remove('ting'); void el.offsetWidth; el.classList.add('ting');
   // "Land on the chord" game: your turn ends the moment you play the chord after your phrase
@@ -512,8 +546,8 @@ function tradeTick(){
     for (let step = lastStep + 1; step <= k; step++) {
       const c = chordAt(step), prevC = step > 0 ? chordAt(step - 1) : null;
       if (step === 0 || gridStart[((step % grid.length) + grid.length) % grid.length]) {
-        if (prevC) prevC.voicing.forEach(noteOff);
-        if ($('comp').checked) c.voicing.forEach(p => noteOn(p, 50, c.beats * 60 / +$('tempo').value));
+        if (prevC) prevC.voicing.forEach(p => noteOff(p, CH.comp));
+        if ($('comp').checked) c.voicing.forEach(p => noteOn(p, 50, c.beats * 60 / +$('tempo').value, CH.comp));
         curChord = c;
       }
       $('bar').textContent = where(c) + ' · chord tones: ' + [...c.pcs].map(sar).join(', ');
@@ -606,25 +640,23 @@ function midiAt(ms, bytes){
   const go = () => outs.forEach(o => { try { o.send(bytes); } catch (e) {} });
   const d = ms - performance.now(); d <= 1 ? go() : setTimeout(go, d);
 }
-function drumHit(ms, inst, v){
-  if (toKeys()) { const n = GM_DRUM[inst], vel = Math.max(1, Math.min(127, Math.round(v * (inst === 'brush' ? 45 : 90))));
-    midiAt(ms, [0x99, n, vel]); midiAt(ms + 80, [0x89, n, 0]); return; }
-  DRUM[inst](Math.max(actx.currentTime, toAudio(ms)), v);
+function drumHit(ms, inst, v){              // the CT-S1 has no drum kit, so drums always play on this device
+  if (actx) DRUM[inst](Math.max(actx.currentTime, toAudio(ms)), v);
 }
 function bassHit(ms, midi, durMs){
-  if (toKeys()) { midiAt(ms, [0x91, midi, 88]); midiAt(ms + durMs * 0.92, [0x81, midi, 0]); return; }
+  if (toKeys()) { midiAt(ms, [0x90 | CH.bass, midi, 92]); midiAt(ms + durMs * 0.92, [0x80 | CH.bass, midi, 0]); return; }
+  if (!actx) return;
   bassNote(Math.max(actx.currentTime, toAudio(ms)), midi, durMs / 1000);
 }
-function bassTone(){ if (toKeys() && $('bassTone').checked) outs.forEach(o => { try { o.send([0xC1, 32]); } catch (e) {} }); }
+function bassTone(){ sendTones(); }
 $('bandTest').onclick = () => {
   if (!outs.length) { status('No keyboard found to test with.', true); return; }
-  const was = $('bandOut').checked; $('bandOut').checked = true; bassTone();
+  sendTones();
+  const was = $('bandOut').checked; $('bandOut').checked = true;
   const t = performance.now() + 100, b = 60000 / 100;
-  [[0,'kick'],[0,'ride'],[1,'ride'],[1,'hat'],[1.5,'ride'],[2,'ride'],[2,'kick'],[3,'ride'],[3,'hat'],[3.5,'rim']]
-    .forEach(([x, i]) => drumHit(t + x * b, i, 1));
-  [[0,41],[1,45],[2,48],[3,49]].forEach(([x, n]) => bassHit(t + x * b, n, b * 0.9));
+  [[0,41],[1,45],[2,48],[3,49],[4,51]].forEach(([x, n]) => bassHit(t + x * b, n, b * 0.9));
   $('bandOut').checked = was;
-  status('Test sent: you should hear drums and a bass line from the keyboard.');
+  status('Test sent: you should hear a walking bass line from the keyboard.');
 };
 
 // ---- drum patterns: [beat position in the bar on the straight grid, instrument, loudness] ----
@@ -704,7 +736,9 @@ document.querySelectorAll('#style .chip').forEach(el => el.onclick = () => {
 });
 $('bandVol').oninput = () => { if (bandBus) bandBus.gain.value = +$('bandVol').value; };
 
+renderTones();
 $('play').onclick = async () => {
+  sendTones();
   if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); await actx.resume(); } catch(e){} }
   playing = true; $('play').disabled = true; $('stop').disabled = false;
   if (mode === 'trade') { status('Taking turns. You start.'); startTrade(); return; }
