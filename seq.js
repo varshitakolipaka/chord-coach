@@ -1,11 +1,11 @@
 // Sequence builder shared by the chord coach and the improviser.
 // Pick "Whole tune" or build "My sequence" from chord chips, in any order.
 (function () {
-  const css = `.seq-sub{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);margin:12px 0 6px}
+  const css = `.seq-sub{font-size:13px;color:var(--char,#4a4741);margin:14px 0 7px}
   .seq-mode{margin-bottom:4px} .seq-item{display:flex;align-items:center;gap:6px}
   .seq-n{font-size:11px;color:var(--dim);font-weight:400} .seq-empty{color:var(--dim);font-size:14px}
   .seq-tools{margin:8px 0 0} .seq-tools button{padding:6px 10px;font-size:14px}
-  .seq-list .chip.on{border-color:var(--accent);background:var(--panel2)}`;
+  .seq-list .chip.on{outline:2px solid var(--you,#d8417f);outline-offset:1px}`;
   const tag = document.createElement('style'); tag.textContent = css; document.head.appendChild(tag);
   const PRESETS = [
     ['ii–V–I in E♭ (bars 1–2)', ['Fm7', 'B♭7', 'E♭maj7']],

@@ -1,0 +1,29 @@
+<!doctype html><meta charset="utf-8"><body style="margin:0;background:#efe8da">
+<script src="../brush.js"></script>
+<script>
+const c = brush.createCanvas(900, 640, {pixelDensity: 1, parent: document.body});
+brush.scaleBrushes(1.6);
+brush.seed(3);
+brush.translate(-450, -320);
+// light
+brush.noStroke(); brush.fill('#e9b44a', 140); brush.fillBleed(0.35, 'out'); brush.fillTexture(0.55, 0.5); brush.circle(450, 170, 190);
+brush.noFill();
+// coat
+brush.noStroke(); brush.wash('#a4502b', 235); brush.polygon([[240,340],[250,240],[330,160],[570,160],[650,240],[660,340]]); brush.noWash();
+brush.set('charcoal', '#17161a', 1.4); brush.fill('#6e2f17', 120); brush.fillBleed(0.15); brush.fillTexture(0.4, 0.35);
+brush.polygon([[240,340],[250,240],[330,160],[570,160],[650,240],[660,340]]);
+brush.noFill(); brush.set('2B', '#17161a', 1); brush.hatch(9, 70); brush.polygon([[260,330],[270,240],[340,170],[560,170],[630,240],[640,330]]); brush.noHatch();
+// marker scarf
+brush.set('marker', '#d8417f', 2); brush.line(440, 170, 460, 330);
+// head
+brush.noStroke(); brush.wash('#8a5a3e', 245); brush.circle(450, 85, 56); brush.noWash();
+brush.set('charcoal', '#17161a', 1.2); brush.fill('#5e3a26', 110); brush.fillBleed(0.08); brush.fillTexture(0.3, 0.3); brush.circle(450, 85, 56);
+brush.noFill(); brush.set('2B', '#17161a', 1.5); brush.arc(430, 90, 12, 0.2, 2.9); brush.arc(470, 90, 12, 0.2, 2.9);
+// a key
+brush.set('charcoal', '#17161a', 1.2); brush.fill('#f7f0e0', 230); brush.fillTexture(0.2,0.2); brush.polygon([[300,400],[360,400],[350,620],[280,620]]);
+brush.noStroke(); brush.wash('#d8417f', 200); brush.polygon([[370,400],[430,400],[425,620],[360,620]]); brush.noWash(); brush.set('charcoal', '#17161a', 1.2);
+brush.fill('#b02a62', 120); brush.fillBleed(0.25); brush.fillTexture(0.5,0.4); brush.polygon([[370,400],[430,400],[425,620],[360,620]]);
+brush.noFill(); brush.set('marker','#17161a',3); brush.line(395,400,392,520);
+brush.render();
+document.title = 'done';
+</script>
