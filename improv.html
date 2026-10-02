@@ -82,6 +82,7 @@
 <div class="panel">
   <div class="label">Now</div>
   <div id="turn"></div>
+  <div id="streak" style="font-size:15px;color:var(--accent);min-height:18px"></div>
   <div id="chord">—</div>
   <div id="bar"></div>
   <div id="note"></div>
@@ -106,6 +107,11 @@
   <div class="chips" id="mode" style="margin-bottom:14px">
     <div class="chip on" data-m="trade">🎹 Take turns (you play, Magenta answers)</div>
     <div class="chip" data-m="solo">Magenta solos</div>
+  </div>
+  <div class="label">Your turn ends</div>
+  <div class="chips" id="endMode" style="margin-bottom:14px">
+    <div class="chip on" data-e="pause">When you pause for a beat</div>
+    <div class="chip" data-e="chord">🎯 When you land on the chord</div>
   </div>
   <div class="label">How close to the chord</div>
   <div class="chips" id="stick" style="margin-bottom:14px">
@@ -376,36 +382,51 @@ function chordStartStep(){                          // step where the current ch
   while (k > 0 && !gridStart[((k % grid.length) + grid.length) % grid.length]) k--;
   return k;
 }
-// The moment every note of the chord's shell is held, ring a high "ting" in harmony (the chord's 3rd)
-function checkTing(){
-  if (!$('ting').checked || !curChord) return;
+function chordComplete(){
+  if (!curChord) return false;
   const held = new Set([...chordHand, ...youNow].map(p => p % 12));
-  const at = chordStartStep();
-  if (at === tingedAt || ![...curChord.pcs].every(pc => held.has(pc))) return;
-  tingedAt = at;
-  const third = [...curChord.tones].find(pc => (pc - curChord.root + 12) % 12 === 3 || (pc - curChord.root + 12) % 12 === 4);
-  const p = 84 + ((third - 84) % 12 + 12) % 12;      // two octaves up, C6–B6
-  noteOn(p, 72, 0.6); setTimeout(() => noteOff(p), 500);
-  const el = $('chord'); el.classList.remove('ting'); void el.offsetWidth; el.classList.add('ting');
+  return [...curChord.pcs].every(pc => held.has(pc));
 }
+let streak = 0;
+// Called when a key press completes the chord (all shell notes now held)
+function chordStruck(){
+  const at = chordStartStep();
+  if ($('ting').checked && at !== tingedAt) {        // ring a high "ting" in harmony (the chord's 3rd), once per chord
+    tingedAt = at;
+    const third = [...curChord.tones].find(pc => [3, 4].includes((pc - curChord.root + 12) % 12));
+    const p = 84 + ((third - 84) % 12 + 12) % 12;    // two octaves up, C6–B6
+    noteOn(p, 72, 0.6); setTimeout(() => noteOff(p), 500);
+  }
+  const el = $('chord'); el.classList.remove('ting'); void el.offsetWidth; el.classList.add('ting');
+  // "Land on the chord" game: your turn ends the moment you play the chord after your phrase
+  if (endMode === 'chord' && phase === 'you' && phrase.some(n => n.p >= SPLIT)) {
+    streak++; showStreak(); answer();
+  }
+}
+let endMode = 'pause';
+document.querySelectorAll('#endMode .chip').forEach(el => el.onclick = () => {
+  endMode = el.dataset.e; streak = 0; showStreak();
+  document.querySelectorAll('#endMode .chip').forEach(x => x.classList.toggle('on', x === el));
+});
+function showStreak(){ $('streak').textContent = endMode === 'chord' && streak ? '🎯 Landed ' + streak + (streak === 1 ? ' time' : ' times') : ''; }
 
 function onIn(e){
   const [st, p, v] = e.data, cmd = st & 0xf0;
   if (!playing || mode !== 'trade') return;
   const on = cmd === 0x90 && v > 0, off = cmd === 0x80 || (cmd === 0x90 && v === 0);
   if (!on && !off) return;
+  const was = chordComplete();
   if (p < SPLIT) {                                  // chord hand: never counts as your phrase
-    if (on) { chordHand.add(p); checkTing(); } else chordHand.delete(p);
-    draw(); return;
-  }
-  if (on) {
+    if (on) chordHand.add(p); else chordHand.delete(p);
+  } else if (on) {
     if (phase === 'answer' || phase === 'think') { token++; silenceMagenta(); phrase = []; }  // you interrupt: Magenta yields
     if (phase !== 'you') { phrase = []; phase = 'you'; }
-    phrase.push({p, on: stepPos(), off: null}); youNow.add(p); checkTing();
+    phrase.push({p, on: stepPos(), off: null}); youNow.add(p);
   } else {
     const n = [...phrase].reverse().find(x => x.p === p && x.off === null); if (n) n.off = stepPos();
     youNow.delete(p); lastOffAt = performance.now();
   }
+  if (on && !was && chordComplete()) chordStruck();
   showTurn(); draw();
 }
 
@@ -453,7 +474,7 @@ async function answer(){
 function showTurn(){
   const t = $('turn');
   const m = {listen: ['🎧 Your turn: play a phrase whenever you like', 'you'],
-             you: ['🎹 You’re playing… pause for a beat when you’re done', 'you'],
+             you: [endMode === 'chord' ? '🎹 You’re playing… land on the chord to finish' : '🎹 You’re playing… pause for a beat when you’re done', 'you'],
              think: ['🤔 Magenta is thinking…', 'mag'],
              answer: ['🤖 Magenta answers', 'mag']}[phase];
   t.textContent = m[0]; t.className = m[1];
@@ -474,7 +495,7 @@ function tradeTick(){
     lastStep = k;
   }
   // your phrase is over after one beat of silence
-  if (phase === 'you' && youNow.size === 0 && performance.now() - lastOffAt >= beatMs()) answer();
+  if (endMode === 'pause' && phase === 'you' && youNow.size === 0 && performance.now() - lastOffAt >= beatMs()) answer();
   // Magenta's notes
   while (pending.length && pending[0].step <= k) {
     const e = pending.shift();
