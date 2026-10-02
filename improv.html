@@ -42,10 +42,10 @@
 <div class="sub">Magenta's ImprovRNN plays a solo line over the changes. Sa = E♭. <a href="./">← back to the chord coach</a></div>
 
 <div class="row">
-  <button id="load" class="go">1 · Load Magenta</button>
-  <button id="play" disabled>2 · ▶ Play</button>
+  <button id="load" class="go">Loading Magenta…</button>
+  <button id="play" disabled>▶ Play</button>
   <button id="stop" disabled>■ Stop</button>
-  <span id="status">Model not loaded yet (about 5 MB, once).</span>
+  <span id="status">Loading Magenta…</span>
 </div>
 
 <div class="panel">
@@ -184,18 +184,25 @@ function status(msg, err){
 const CKPT = 'https://storage.googleapis.com/magentadata/js/checkpoints/music_rnn/chord_pitches_improv';
 const SPQ = 4;                           // 16th-note steps
 let rnn = null;
-$('load').onclick = async () => {
-  $('load').disabled = true; status('Downloading Magenta model…');
+async function loadModel(){
+  if (rnn || $('load').disabled) return;
+  $('load').disabled = true; $('load').textContent = 'Loading Magenta…'; status('Loading Magenta (first time ~5 MB, then cached)…');
   try {
-    rnn = new mm.MusicRNN(CKPT);
-    await rnn.initialize();
-    $('play').disabled = false; $('load').textContent = '✓ Magenta loaded'; status();
+    const m = new mm.MusicRNN(CKPT);
+    await m.initialize();
+    // warm-up: one tiny practice run so the first real answer isn't slow
+    await m.continueSequence({notes: [{pitch: 65, quantizedStartStep: 0, quantizedEndStep: 2}], totalQuantizedSteps: 4,
+                              quantizationInfo: {stepsPerQuarter: SPQ}}, 4, 1.0, Array(8).fill('Fm7'));
+    rnn = m;
+    $('play').disabled = false; $('load').textContent = '✓ Magenta ready'; status();
   } catch (e) {
-    $('load').disabled = false;
-    status('Could not load the model. Check the internet connection and try again.', true);
+    $('load').disabled = false; $('load').textContent = 'Retry loading Magenta';
+    status('Could not load Magenta. Check the internet connection and tap Retry.', true);
     console.error(e);
   }
-};
+}
+$('load').onclick = loadModel;
+loadModel();                       // start loading as soon as the page opens
 
 
 // ---------- Keeping Magenta's line around the chord ----------
