@@ -123,6 +123,22 @@
   <div id="seq"></div>
 </div>
 
+<div class="panel">
+  <div class="label">Band</div>
+  <div class="chips" id="style">
+    <div class="chip" data-st="none">No band</div>
+    <div class="chip on" data-st="swing">🥁 Swing</div>
+    <div class="chip" data-st="ballad">Ballad</div>
+    <div class="chip" data-st="bossa">Bossa nova</div>
+  </div>
+  <div class="ctl" style="margin-top:10px">
+    <label class="label" for="bandVol" style="margin:0">Band volume</label>
+    <input id="bandVol" type="range" min="0" max="1.5" step="0.05" value="0.8">
+    <span></span>
+  </div>
+  <div class="sub" style="margin:8px 0 0">Drums and bass play through this device's speaker (on iPhone, turn the silent switch off). The Casio keeps the piano.</div>
+</div>
+
 <div class="panel ctl">
   <label class="label" for="tempo" style="margin:0">Tempo</label>
   <input id="tempo" type="range" min="50" max="140" step="5" value="80">
@@ -265,6 +281,8 @@ function nearest(p, set){
 function fold(p){ while (p < 58) p += 12; while (p > 84) p -= 12; return p; }   // keep the line B♭3–C6
 // notes: [{pitch,s,e}] with s relative; chordOf(s) gives the chord sounding at that step
 function shape(notes, chordOf){
+  if (swingR() > 0.5) notes = notes.map(n => { const s0 = Math.round(n.s / 2) * 2; return {...n, s: s0, e: Math.max(s0 + 2, Math.round(n.e / 2) * 2)}; })
+    .filter((n, i, a) => i === 0 || n.s !== a[i - 1].s);   // swing feel: 8th notes, no doubled starts
   return notes.map(n => {
     let p = fold(n.pitch);
     const c = chordOf(n.s), strong = n.s % SPQ === 0 || (n.e - n.s) >= SPQ;
@@ -309,27 +327,30 @@ function buildEvents(chords, notes, t0){
   let step = 0;
   chords.forEach(c => {
     const len = c.beats * SPQ;
-    ev.push({t: t0 + step * sm, kind: 'chord', c});
+    ev.push({t: t0 + stepToMs(step), kind: 'chord', c});
     if ($('comp').checked) c.voicing.forEach(p => {
-      ev.push({t: t0 + step * sm, kind: 'on', p, v: 55, dur: len * sm / 1000});
-      ev.push({t: t0 + (step + len) * sm - 30, kind: 'off', p});
+      ev.push({t: t0 + stepToMs(step), kind: 'on', p, v: 55, dur: len * sm / 1000});
+      ev.push({t: t0 + stepToMs(step + len) - 30, kind: 'off', p});
     });
     step += len;
   });
   notes.forEach(n => {
-    ev.push({t: t0 + n.s * sm, kind: 'on', p: n.pitch, v: 96, dur: (n.e - n.s) * sm / 1000, mel: true});
-    ev.push({t: t0 + n.e * sm - 10, kind: 'off', p: n.pitch, mel: true});
+    ev.push({t: t0 + stepToMs(n.s), kind: 'on', p: n.pitch, v: 96, dur: (n.e - n.s) * sm / 1000, mel: true});
+    ev.push({t: t0 + stepToMs(n.e) - 10, kind: 'off', p: n.pitch, mel: true});
   });
-  ev.end = t0 + step * sm;
-  return ev.sort((a, b) => a.t - b.t);
+  const sorted = ev.sort((a, b) => a.t - b.t); sorted.end = t0 + stepToMs(step);
+  return sorted;
 }
 
 async function startPass(t0){
   const chords = section();
   const notes = await generate(chords);
   if (!playing) return;
-  queue = queue.concat(buildEvents(chords, notes, Math.max(t0, performance.now() + 50)));
-  const end = queue.length ? Math.max(...queue.map(e => e.t)) + 30 : performance.now();
+  const start = Math.max(t0, performance.now() + 50);
+  if (!bandTimer && style !== 'none') startBand(start);
+  const ev = buildEvents(chords, notes, start);
+  queue = queue.concat(ev).sort((a, b) => a.t - b.t);
+  const end = ev.end;
   // generate the next pass early so there is no gap
   nextPass = setTimeout(() => startPass(end), Math.max(0, end - performance.now() - 2500));
 }
@@ -358,7 +379,7 @@ let phase = 'listen';              // listen → you → think → answer → li
 let token = 0, magSounding = new Set();
 let grid = [], gridStart = [], t0 = 0, lastStep = -1, pending = [];
 
-const stepPos = () => (performance.now() - t0) / stepMs();     // fractional step on the chord clock
+const stepPos = () => unwarp((performance.now() - t0) / beatMs()) * SPQ;   // fractional step on the (swung) chord clock
 const beatMs = () => 60000 / +$('tempo').value;
 function fitRange(p){ while (p < 48) p += 12; while (p > 83) p -= 12; return p; }
 const chordAt = k => grid[((k % grid.length) + grid.length) % grid.length];
@@ -509,9 +530,145 @@ function tradeTick(){
 function startTrade(){
   grid = []; gridStart = []; section().forEach(c => { for (let i = 0; i < c.beats * SPQ; i++) { grid.push(c); gridStart.push(i === 0); } });
   t0 = performance.now() + 300; lastStep = -1; pending = []; phrase = []; phase = 'listen'; token++;
+  startBand(t0);
   showTurn();
   timer = setInterval(() => { if (performance.now() >= t0) tradeTick(); }, 8);
 }
+
+// =====================  THE BAND: drums + walking bass, with swing  =====================
+// Styles: how much the off-beat 8th is delayed (0.5 = straight, 0.66 = full triplet swing)
+const STYLES = {
+  none:   {label: 'No band',  swing: 0.5},
+  swing:  {label: 'Swing',    swing: 0.64},
+  ballad: {label: 'Ballad',   swing: 0.6},
+  bossa:  {label: 'Bossa nova', swing: 0.5},
+};
+let style = 'swing';
+const swingR = () => STYLES[style].swing;
+// beats on the straight grid → beats on the swung grid, and back
+function warp(x){ const b = Math.floor(x), f = x - b, r = swingR();
+  return b + (f < 0.5 ? f / 0.5 * r : r + (f - 0.5) / 0.5 * (1 - r)); }
+function unwarp(y){ const b = Math.floor(y), g = y - b, r = swingR();
+  return b + (g < r ? g / r * 0.5 : 0.5 + (g - r) / (1 - r) * 0.5); }
+const stepToMs = st => warp(st / SPQ) * beatMs();
+
+// ---- tiny synths for drums and bass (play through this device) ----
+let bandBus = null, noiseBuf = null;
+function audioReady(){
+  if (!actx) return false;
+  if (!bandBus) {
+    bandBus = actx.createGain(); bandBus.connect(actx.destination);
+    noiseBuf = actx.createBuffer(1, actx.sampleRate, actx.sampleRate);
+    const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+  bandBus.gain.value = +$('bandVol').value;
+  return true;
+}
+function noise(t, dur, type, freq, q, vol){
+  const src = actx.createBufferSource(), f = actx.createBiquadFilter(), g = actx.createGain();
+  src.buffer = noiseBuf; f.type = type; f.frequency.value = freq; f.Q.value = q;
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  src.connect(f).connect(g).connect(bandBus); src.start(t); src.stop(t + dur + 0.02);
+}
+function tone(t, freq, dur, type, vol, endFreq){
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.type = type; o.frequency.setValueAtTime(freq, t); if (endFreq) o.frequency.exponentialRampToValueAtTime(endFreq, t + dur);
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o.connect(g).connect(bandBus); o.start(t); o.stop(t + dur + 0.02);
+}
+const DRUM = {
+  ride:  (t, v) => { noise(t, 0.35, 'highpass', 6500, 0.7, 0.16 * v); tone(t, 5200, 0.3, 'square', 0.012 * v); },
+  hat:   (t, v) => noise(t, 0.05, 'highpass', 8000, 0.8, 0.14 * v),
+  kick:  (t, v) => tone(t, 110, 0.18, 'sine', 0.55 * v, 45),
+  brush: (t, v) => noise(t, 0.22, 'bandpass', 3000, 0.6, 0.10 * v),
+  rim:   (t, v) => { tone(t, 1700, 0.03, 'square', 0.06 * v); noise(t, 0.03, 'bandpass', 2500, 2, 0.12 * v); },
+};
+function bassNote(t, midi, dur){
+  const f = 440 * Math.pow(2, (midi - 69) / 12), o = actx.createOscillator(), o2 = actx.createOscillator();
+  const lp = actx.createBiquadFilter(), g = actx.createGain();
+  o.type = 'triangle'; o2.type = 'sine'; o.frequency.value = f; o2.frequency.value = f * 2;
+  lp.type = 'lowpass'; lp.frequency.setValueAtTime(1400, t); lp.frequency.exponentialRampToValueAtTime(400, t + dur);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.5, t + 0.01); g.gain.exponentialRampToValueAtTime(0.001, t + dur * 0.95);
+  const g2 = actx.createGain(); g2.gain.value = 0.25;
+  o.connect(lp); o2.connect(g2).connect(lp); lp.connect(g).connect(bandBus);
+  o.start(t); o2.start(t); o.stop(t + dur); o2.stop(t + dur);
+}
+
+// ---- drum patterns: [beat position in the bar on the straight grid, instrument, loudness] ----
+const PATTERNS = {
+  swing:  [[0,'ride',1],[1,'ride',1],[1.5,'ride',.7],[2,'ride',1],[3,'ride',1],[3.5,'ride',.7],
+           [1,'hat',1],[3,'hat',1],[0,'kick',.25],[1,'kick',.2],[2,'kick',.25],[3,'kick',.2]],
+  ballad: [[0,'brush',1],[1,'brush',.8],[2,'brush',1],[3,'brush',.8],[1,'hat',.7],[3,'hat',.7],[0,'kick',.3],[2,'kick',.2]],
+  bossa:  [[0,'kick',.6],[1.5,'kick',.45],[2,'kick',.6],[3.5,'kick',.45],
+           [0,'hat',.6],[0.5,'hat',.4],[1,'hat',.6],[1.5,'hat',.4],[2,'hat',.6],[2.5,'hat',.4],[3,'hat',.6],[3.5,'hat',.4],
+           [0,'rim',1],[1.5,'rim',1],[3,'rim',1]],
+};
+
+// ---- walking bass: root on the downbeat, chord tones in between, a half-step into the next chord ----
+let bassLast = 43;
+function nearestOct(pc, near){ let p = 36 + ((pc - 36) % 12 + 12) % 12; while (p + 12 <= 57 && Math.abs(p + 12 - near) < Math.abs(p - near)) p += 12; return p; }
+function bassLine(c, next, beats){
+  const r = nearestOct(c.root, bassLast), tones = [...c.tones].map(pc => (pc - c.root + 12) % 12).sort((a, b) => a - b);
+  const nextRoot = nearestOct(next.root, r);
+  if (style === 'bossa') {                       // root and fifth, bossa rhythm
+    const fifth = r + ((tones.find(i => i === 7 || i === 6)) ?? 7), out = [];
+    for (let b = 0; b < beats; b += 4) out.push([b, r, 1.4], [b + 1.5, r, 0.45], [b + 2, fifth, 1.4], [b + 3.5, fifth, 0.45]);
+    return out.filter(n => n[0] < beats);
+  }
+  const step = style === 'ballad' ? 2 : 1;       // ballad: two-feel (half notes)
+  const out = [];
+  for (let b = 0; b < beats; b += step) {
+    let p;
+    if (b === 0) p = r;
+    else if (b + step >= beats) p = nextRoot + (Math.random() < 0.5 ? 1 : -1);   // chromatic approach
+    else {                                       // a chord tone that isn't the note we just played
+      const prev = out.length ? out[out.length - 1][1] : r;
+      const opts = tones.slice(1).map(i => { let q = r + i; if (q > 57) q -= 12; return q; }).filter(q => q !== prev);
+      p = opts[Math.floor(Math.random() * opts.length)];
+    }
+    out.push([b, p, step * 0.95]);
+  }
+  bassLast = out[out.length - 1][1];
+  return out;
+}
+
+// ---- scheduler: looks a little ahead and books sounds on the audio clock ----
+let bandT0 = 0, bandBeats = [], bandNext = 0, bandTimer = null;
+function startBand(t0ms){
+  stopBand();
+  if (style === 'none' || !audioReady()) return;
+  bandBeats = []; section().forEach(c => { for (let i = 0; i < c.beats; i++) bandBeats.push({c, first: i === 0, len: c.beats}); });
+  bandT0 = t0ms; bandNext = 0; bassLast = 43;
+  bandTimer = setInterval(bandTick, 25); bandTick();
+}
+function stopBand(){ clearInterval(bandTimer); bandTimer = null; }
+const toAudio = ms => actx.currentTime + (ms - performance.now()) / 1000;
+function bandTick(){
+  const horizon = performance.now() + 150;
+  while (bandT0 + warp(bandNext) * beatMs() < horizon) {
+    const n = bandNext, beat = bandBeats[n % bandBeats.length], inBar = n % 4;
+    // drums for this beat
+    (PATTERNS[style] || []).forEach(([pos, inst, v]) => {
+      if (Math.floor(pos) !== inBar) return;
+      const ms = bandT0 + warp(n + (pos - inBar)) * beatMs();
+      if (ms > performance.now() - 20) DRUM[inst](Math.max(actx.currentTime, toAudio(ms)), v * (0.9 + Math.random() * 0.2));
+    });
+    // bass: plan a chord's worth of notes when it starts
+    if (beat.first) {
+      const next = bandBeats[(n + beat.len) % bandBeats.length].c;
+      bassLine(beat.c, next, beat.len).forEach(([b, p, d]) => {
+        const ms = bandT0 + warp(n + b) * beatMs();
+        bassNote(Math.max(actx.currentTime, toAudio(ms)), p, d * beatMs() / 1000);
+      });
+    }
+    bandNext++;
+  }
+}
+document.querySelectorAll('#style .chip').forEach(el => el.onclick = () => {
+  style = el.dataset.st; document.querySelectorAll('#style .chip').forEach(x => x.classList.toggle('on', x === el));
+  if (playing) restart();
+});
+$('bandVol').oninput = () => { if (bandBus) bandBus.gain.value = +$('bandVol').value; };
 
 $('play').onclick = async () => {
   if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); await actx.resume(); } catch(e){} }
@@ -522,6 +679,7 @@ $('play').onclick = async () => {
   startPass(performance.now() + 100);
 };
 function stop(){
+  stopBand();
   playing = false; clearInterval(timer); clearTimeout(nextPass); queue = [];
   token++; allOff(); curChord = null; curNote = null; pending = []; magSounding.clear(); youNow.clear(); chordHand.clear(); tingedAt = -1; $('turn').textContent = ''; draw();
   $('play').disabled = !rnn; $('stop').disabled = true; status();
