@@ -1,209 +1,401 @@
-// A still painting: a red Casio CT-S1 lying straight across the page, and a long black-and-white cat
-// wrapped around it, curiously poking one of its buttons. Painted once (gouache: flat shapes, dry-brush
-// streaks, grain, dark outlines). Only the keys change: your notes take a red wash, Magenta's go inky
-// black, and the chord's notes get pencil hatching.
+// The painting engine: a one-octave red Casio, and a goofy cat walking over it.
+// The cat's four paws and its tail (the thumb) press whatever is sounding. When a chord needs more than five
+// notes it sprouts an extra leg, and now and then it grows one just because.
+//
+// Each personality (skins/*.js) paints the picture in its own style with 2D canvas and p5.brush. The still
+// parts (the Casio, the background, the cat's body, the key marks) are painted once, when the personality is
+// chosen. During play we only copy pieces of those paintings onto the keys and redraw the cat's legs and tail,
+// and the cat layer only animates while it is moving, so painting never gets in the way of the music.
+//
+// p5.brush by Alejandro Campos (MIT): https://github.com/acamposuribe/p5.brush
 (function () {
-  const W = 1000, H = 660;
-  const C = {paper: '#efe9de', ink: '#121212', char: '#2b2b2b', grey: '#6d6d6d', pale: '#c9c4ba', white: '#f7f4ee',
-             red: '#c8302b', redDk: '#8b1d1b', redLt: '#e2574d', key: '#f4f0e7', keyDk: '#d6cfc1'};
+  const W = 1000, H = 700;
   const BLACK = new Set([1, 3, 6, 8, 10]);
-  const Duo = {ok: false};
-  let host, cv, ctx, dpr = 1, base = null, grain = null, opts, state = {you: [], mel: -1, magchord: [], tones: []};
+  const KINDS = ['you', 'mel', 'mc', 'tone'];
+  const Duo = {ok: false, skins: {}, order: [], W, H};
+  window.Duo = Duo;
+  let host, wrap, cv, ctx, catCv, cat, S = 2, work = null, base = null, sheets = null, skin = null, K = null, opts, dispK = 1, dpr = 1;
+  let state = {you: [], mel: -1, magchord: [], tones: [], turn: 'idle'};
 
-  // keyboard geometry (logical units)
-  const KB = {x0: 112, x1: 888, top: 372, bottom: 560, blackBottom: 486};
-  const KEYS = (() => {
-    const whites = [], blacks = [], ww = (KB.x1 - KB.x0) / 7.6, off = 0.3 * ww; let wi = 0;
-    for (let n = 63; n <= 75; n++) {
-      const pc = n % 12;
-      if (BLACK.has(pc)) { const cx = KB.x0 + off + wi * ww, bw = ww * 0.58; blacks.push({pc, x0: Math.max(KB.x0, cx - bw / 2), x1: Math.min(KB.x1, cx + bw / 2)}); }
-      else { whites.push({pc, x0: KB.x0 + off + wi * ww, x1: KB.x0 + off + (wi + 1) * ww}); wi++; }
-    }
-    return {whites, blacks};
-  })();
+  // ---------- seeded randomness: a personality always paints the same picture ----------
+  let seedN = 1;
+  const rand = () => { seedN = seedN + 0x6D2B79F5 | 0; let t = Math.imul(seedN ^ seedN >>> 15, 1 | seedN); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  const rnd = (a, b) => a + rand() * (b - a);
+  const pick = arr => arr[Math.floor(rand() * arr.length)];
 
-  // ---------- gouache helpers ----------
-  const rnd = (a, b) => a + Math.random() * (b - a);
-  function makeGrain(){
-    const g = document.createElement('canvas'); g.width = g.height = 200; const x = g.getContext('2d'), img = x.createImageData(200, 200);
-    for (let i = 0; i < img.data.length; i += 4) { const v = 110 + Math.random() * 145; img.data[i] = img.data[i + 1] = img.data[i + 2] = v; img.data[i + 3] = 255; }
-    x.putImageData(img, 0, 0); return g;
-  }
+  // ---------- geometry ----------
   function pathOf(c, pts, smooth){
     c.beginPath();
     if (!smooth) { pts.forEach(([x, y], i) => i ? c.lineTo(x, y) : c.moveTo(x, y)); c.closePath(); return; }
     const n = pts.length, mid = i => [(pts[i % n][0] + pts[(i + 1) % n][0]) / 2, (pts[i % n][1] + pts[(i + 1) % n][1]) / 2];
     c.moveTo(...mid(0)); for (let i = 1; i <= n; i++) c.quadraticCurveTo(pts[i % n][0], pts[i % n][1], ...mid(i)); c.closePath();
   }
-  function paint(c, pts, base, light, dark, o = {}){
-    c.save(); pathOf(c, pts, o.smooth); c.fillStyle = base; c.fill(); c.clip();
-    const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]), x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
-    const n = Math.min(500, Math.ceil((x1 - x0) * (y1 - y0) / 500 * (o.density ?? 1)) + 12);
-    c.lineCap = 'round';
-    for (let i = 0; i < n; i++) {
-      const x = rnd(x0, x1), y = rnd(y0, y1), a = (o.angle ?? 0) + rnd(-0.3, 0.3), len = rnd(14, 60);
-      c.strokeStyle = Math.random() < (o.lightShare ?? 0.5) ? light : dark; c.globalAlpha = rnd(0.07, 0.24); c.lineWidth = rnd(3, 11);
-      c.beginPath(); c.moveTo(x, y); c.lineTo(x + Math.cos(a) * len, y + Math.sin(a) * len); c.stroke();
-    }
-    c.globalAlpha = o.grain ?? 0.28; c.globalCompositeOperation = 'multiply'; c.fillStyle = c.createPattern(grain, 'repeat'); c.fillRect(x0, y0, x1 - x0, y1 - y0);
-    c.restore();
-    if (o.outline !== false) ink(c, pts, o.lw ?? 3.2, o.smooth);
-  }
-  function ink(c, pts, w = 3, smooth = false, color = C.ink){
-    c.save(); c.strokeStyle = color; c.lineJoin = 'round'; c.lineCap = 'round';
-    for (let pass = 0; pass < 2; pass++) {
-      c.globalAlpha = pass ? 0.45 : 0.92; c.lineWidth = w + pass * 1.6;
-      const j = pts.map(([x, y]) => [x + rnd(-0.9, 0.9) * pass, y + rnd(-0.9, 0.9) * pass]);
-      pathOf(c, j, smooth); c.stroke();
-    }
-    c.restore();
-  }
-  function stroke(c, pts, w, color, alpha = 1){            // an open brush stroke along points
-    c.save(); c.strokeStyle = color; c.lineCap = 'round'; c.lineJoin = 'round'; c.globalAlpha = alpha; c.lineWidth = w;
-    c.beginPath(); pts.forEach(([x, y], i) => i ? c.lineTo(x, y) : c.moveTo(x, y)); c.stroke(); c.restore();
-  }
-  const ell = (x, y, rx, ry, n = 32, rot = 0) => Array.from({length: n}, (_, i) => { const t = i / n * Math.PI * 2;
+  const ell = (x, y, rx, ry, n = 40, rot = 0) => Array.from({length: n}, (_, i) => { const t = i / n * Math.PI * 2;
     return [x + rx * Math.cos(t) * Math.cos(rot) - ry * Math.sin(t) * Math.sin(rot), y + rx * Math.cos(t) * Math.sin(rot) + ry * Math.sin(t) * Math.cos(rot)]; });
-  const bez = (p0, p1, p2, p3, n = 16) => Array.from({length: n + 1}, (_, i) => { const t = i / n, a = (1 - t) ** 3, b = 3 * (1 - t) ** 2 * t, cc = 3 * (1 - t) * t * t, d = t ** 3;
+  const bez = (p0, p1, p2, p3, n = 20) => Array.from({length: n + 1}, (_, i) => { const t = i / n, a = (1 - t) ** 3, b = 3 * (1 - t) ** 2 * t, cc = 3 * (1 - t) * t * t, d = t ** 3;
     return [a * p0[0] + b * p1[0] + cc * p2[0] + d * p3[0], a * p0[1] + b * p1[1] + cc * p2[1] + d * p3[1]]; });
-  // a thick shape along a curve (for the tail and legs)
-  function tube(line, w0, w1){
-    const L = [], R = [];
-    line.forEach(([x, y], i) => { const [px, py] = line[Math.max(0, i - 1)], [nx, ny] = line[Math.min(line.length - 1, i + 1)];
-      const dx = nx - px, dy = ny - py, l = Math.hypot(dx, dy) || 1, w = (w0 + (w1 - w0) * i / (line.length - 1)) / 2;
-      L.push([x - dy / l * w, y + dx / l * w]); R.push([x + dy / l * w, y - dx / l * w]); });
+  const quad = (p0, p1, p2, n = 16) => Array.from({length: n + 1}, (_, i) => { const t = i / n, a = (1 - t) ** 2, b = 2 * (1 - t) * t, d = t * t;
+    return [a * p0[0] + b * p1[0] + d * p2[0], a * p0[1] + b * p1[1] + d * p2[1]]; });
+  // a smooth curve through control points (Catmull-Rom), closed or open
+  function curve(ctrl, closed = true, per = 8){
+    const out = [], n = ctrl.length, Pt = i => closed ? ctrl[(i + n) % n] : ctrl[Math.max(0, Math.min(n - 1, i))];
+    for (let i = 0; i < (closed ? n : n - 1); i++) for (let j = 0; j < per; j++) {
+      const t = j / per, p0 = Pt(i - 1), p1 = Pt(i), p2 = Pt(i + 1), p3 = Pt(i + 2), t2 = t * t, t3 = t2 * t;
+      out.push([0, 1].map(k => 0.5 * ((2 * p1[k]) + (-p0[k] + p2[k]) * t + (2 * p0[k] - 5 * p1[k] + 4 * p2[k] - p3[k]) * t2 + (-p0[k] + 3 * p1[k] - 3 * p2[k] + p3[k]) * t3)));
+    }
+    if (!closed) out.push(ctrl[n - 1]);
+    return out;
+  }
+  // a shape of varying width along a line; w(t) is the full width at t in 0..1
+  function ribbon(line, w){
+    const L = [], R = [], n = line.length;
+    line.forEach(([x, y], i) => { const [px, py] = line[Math.max(0, i - 1)], [nx, ny] = line[Math.min(n - 1, i + 1)];
+      const dx = nx - px, dy = ny - py, l = Math.hypot(dx, dy) || 1, ww = (typeof w === 'function' ? w(i / (n - 1)) : w) / 2;
+      L.push([x - dy / l * ww, y + dx / l * ww]); R.push([x + dy / l * ww, y - dx / l * ww]); });
     return [...L, ...R.reverse()];
   }
+  const taper = (wMax, wMin = 0, bias = 0.6) => t => wMin + (wMax - wMin) * Math.pow(Math.sin(Math.PI * Math.min(1, Math.max(0, t))), bias);
+  // a calligraphic stroke: a filled ribbon that swells and thins
+  function calli(c, line, w, color, alpha = 1, rough = 0.5){
+    const shape = ribbon(line, typeof w === 'number' ? taper(w, w * 0.2) : w);
+    c.save(); c.globalAlpha = alpha; c.fillStyle = color; pathOf(c, rough ? shape.map(([x, y]) => [x + rnd(-rough, rough), y + rnd(-rough, rough)]) : shape); c.fill(); c.restore();
+  }
+  // trace a closed outline as several calligraphic strokes, each swelling in its middle
+  function outline(c, pts, wMax, color = '#151210', pieces = 5, wMin = 0.8){
+    const n = pts.length, per = Math.ceil(n / pieces);
+    for (let s = 0; s < pieces; s++) {
+      const seg = []; for (let i = s * per - 2; i <= (s + 1) * per + 2; i++) seg.push(pts[((i % n) + n) % n]);
+      calli(c, seg, taper(wMax * rnd(0.8, 1.12), wMin, 0.45), color, 0.97, 0.35);
+    }
+  }
+  // a closed ink line that is thin where the light falls and heavy on the shadow side (light from top-left)
+  function inkline(c, pts, thin, thick, color = '#15110e', lx = -0.45, ly = -0.9){
+    const n = pts.length, L = [], R = [];
+    for (let i = 0; i <= n; i++) {
+      const [x, y] = pts[i % n], [px, py] = pts[(i - 1 + n) % n], [nx, ny] = pts[(i + 1) % n];
+      const dx = nx - px, dy = ny - py, l = Math.hypot(dx, dy) || 1, ox = dy / l, oy = -dx / l;   // outward normal for clockwise points
+      const lit = Math.max(0, ox * lx + oy * ly), w = (thick - (thick - thin) * lit) * (0.9 + 0.2 * Math.sin(i * 0.7 + x * 0.01)) / 2;
+      L.push([x + ox * w * 0.6, y + oy * w * 0.6]); R.push([x - ox * w * 0.4, y - oy * w * 0.4]);
+    }
+    c.save(); c.fillStyle = color; pathOf(c, [...L, ...R.reverse()]); c.fill('evenodd'); c.restore();
+  }
+  // the folk painter's modelling: a darker tone graded inward from the contour
+  function shade(c, pts, color, depth, alpha = 0.5, smooth = false){
+    c.save(); pathOf(c, pts, smooth); c.clip(); c.strokeStyle = color; c.lineJoin = 'round';
+    const steps = 16; for (let i = 0; i < steps; i++) { c.globalAlpha = alpha / steps * 1.7; c.lineWidth = depth * 2 * (1 - i / steps) + 1; pathOf(c, pts, smooth); c.stroke(); }
+    c.restore();
+  }
+  function fill(c, pts, color, smooth = false, alpha = 1){ c.save(); c.globalAlpha = alpha; c.fillStyle = color; pathOf(c, pts, smooth); c.fill(); c.restore(); }
+  function clipTo(c, pts, smooth, fn){ c.save(); pathOf(c, pts, smooth); c.clip(); fn(); c.restore(); }
+  const jag = (pts, a) => pts.map(([x, y]) => [x + rnd(-a, a), y + rnd(-a, a)]);
 
-  // ---------- the painting ----------
-  function paintBase(){
-    const s = document.createElement('canvas'); s.width = W * dpr; s.height = H * dpr; const c = s.getContext('2d'); c.scale(dpr, dpr);
-    // paper
-    // no background: the painting sits straight on the page's paper
-    // a soft charcoal shadow under the keyboard
-    c.save(); c.globalAlpha = 0.18; c.fillStyle = C.ink; pathOf(c, ell(W / 2, 600, 470, 34), true); c.fill(); c.restore();
-
-    // --- the cat's body lies along the back of the keyboard (painted first, behind the Casio) ---
-    const body = [...bez([150, 300], [170, 150], [520, 120], [760, 175], 22), ...bez([760, 175], [830, 190], [860, 260], [820, 300], 10)];
-    paint(c, [...body, [700, 300], [400, 300]], C.ink, C.grey, '#000', {angle: -0.15, density: 2.2, lightShare: 0.35, smooth: true, lw: 3.4});
-    // fur: a few pale dry-brush streaks along the back
-    for (let i = 0; i < 26; i++) { const x = rnd(220, 740), y = rnd(175, 230); stroke(c, [[x, y], [x + rnd(18, 40), y + rnd(-4, 4)]], rnd(1.5, 3), C.pale, rnd(0.25, 0.5)); }
-
-    // --- the red Casio CT-S1 ---
-    const caseOuter = [[70, 300], [930, 300], [946, 318], [946, 572], [930, 590], [70, 590], [54, 572], [54, 318]];
-    paint(c, caseOuter, C.red, C.redLt, C.redDk, {angle: 0.05, density: 1.4, lw: 3.6});
-    // top panel: speaker grilles left and right, a few round buttons in the middle
-    const grille = (x0, x1) => { for (let r = 0; r < 4; r++) for (let x = x0; x < x1; x += 13) {
-      c.save(); c.fillStyle = C.redDk; c.globalAlpha = 0.85; c.beginPath(); c.ellipse(x + rnd(-0.6, 0.6), 322 + r * 11, 3.4, 2.4, 0, 0, 7); c.fill(); c.restore(); } };
-    grille(96, 330); grille(670, 906);
-    const buttons = [[400, 340], [440, 340], [480, 340], [560, 340], [600, 340]];
-    buttons.forEach(([x, y], i) => paint(c, ell(x, y, 11, 9, 20), i === 3 ? C.white : C.char, '#888', '#000', {density: 1, lw: 2.2, smooth: true}));
-    paint(c, [[515, 330], [535, 330], [535, 350], [515, 350]], C.char, '#777', '#000', {lw: 2}); // a little screen-ish slider
-    // key bed
-    paint(c, [[KB.x0 - 8, KB.top - 6], [KB.x1 + 8, KB.top - 6], [KB.x1 + 8, KB.bottom + 8], [KB.x0 - 8, KB.bottom + 8]], C.ink, '#333', '#000', {outline: false, density: 0.6});
-    // white keys
-    KEYS.whites.forEach(k => paint(c, [[k.x0 + 2, KB.top], [k.x1 - 2, KB.top], [k.x1 - 2, KB.bottom], [k.x0 + 2, KB.bottom]], C.key, '#fffdf6', C.keyDk, {angle: 1.57, density: 1.1, lightShare: 0.6, lw: 2.2}));
-    // black keys
-    KEYS.blacks.forEach(k => paint(c, [[k.x0, KB.top], [k.x1, KB.top], [k.x1, KB.blackBottom], [k.x0, KB.blackBottom]], C.ink, '#444', '#000', {angle: 1.57, density: 1.2, lightShare: 0.35, lw: 2.2}));
-
-    // --- the tail curls down the left end of the Casio and round its front corner ---
-    const tail = bez([158, 292], [40, 300], [10, 470], [70, 560], 24).concat(bez([70, 560], [110, 620], [200, 630], [230, 600], 14).slice(1));
-    paint(c, tube(tail, 44, 18), C.ink, C.grey, '#000', {angle: 1.2, density: 2, lightShare: 0.3, lw: 3});
-    stroke(c, bez([226, 603], [240, 590], [236, 576], [222, 578], 8), 9, C.white, 0.9);       // white tail tip
-    // --- the back paw draped over the left of the case ---
-    paint(c, ell(118, 312, 30, 18, 24, -0.2), C.ink, C.grey, '#000', {density: 1.5, lightShare: 0.3, smooth: true, lw: 2.6});
-    [[100, 318], [116, 323], [132, 321]].forEach(([x, y]) => stroke(c, [[x, y], [x + 2, y + 6]], 2, C.pale, 0.8));
-
-    // --- the head peeks over the right end, eyes wide, looking at its paw ---
-    const head = ell(818, 205, 74, 62, 36);
-    paint(c, head, C.ink, C.grey, '#000', {angle: 0.4, density: 2.2, lightShare: 0.3, smooth: true, lw: 3.4});
-    paint(c, [[760, 168], [768, 98], [800, 150]], C.ink, C.grey, '#000', {lw: 3});            // ears
-    paint(c, [[846, 150], [880, 96], [884, 168]], C.ink, C.grey, '#000', {lw: 3});
-    paint(c, [[772, 158], [775, 120], [792, 152]], '#8a8a8a', '#bbb', '#555', {lw: 1.4, outline: false});
-    paint(c, [[856, 152], [876, 118], [876, 160]], '#8a8a8a', '#bbb', '#555', {lw: 1.4, outline: false});
-    // a white muzzle and chest
-    paint(c, ell(812, 238, 40, 26, 26), C.white, '#fff', C.pale, {density: 1.4, lightShare: 0.6, smooth: true, lw: 2.4});
-    // big curious eyes, pupils turned down-left toward the poking paw
-    [[788, 196], [842, 194]].forEach(([x, y]) => {
-      paint(c, ell(x, y, 19, 21, 26), C.white, '#fff', C.pale, {density: 1, lightShare: 0.7, smooth: true, lw: 2.6});
-      paint(c, ell(x - 6, y + 6, 9, 12, 20), C.ink, '#333', '#000', {density: 1, smooth: true, lw: 1.6});
-      c.save(); c.fillStyle = C.white; c.beginPath(); c.arc(x - 9, y + 1, 3.2, 0, 7); c.fill(); c.restore();
-    });
-    // nose, mouth and whiskers
-    paint(c, [[804, 226], [820, 226], [812, 236]], C.char, '#555', '#000', {lw: 1.6});
-    stroke(c, [[812, 236], [812, 244], [802, 250]], 2.4, C.ink); stroke(c, [[812, 244], [822, 250]], 2.4, C.ink);
-    [[-1, 236], [-1, 246], [1, 236], [1, 246]].forEach(([s, y]) => stroke(c, [[812 + s * 30, y], [812 + s * 96, y + s * 0 + (y - 241) * 1.6 - 8]], 1.6, C.white, 0.85));
-
-    // --- the front leg reaches down from the chest and pokes one button ---
-    const leg = bez([770, 262], [700, 268], [640, 300], [566, 330], 18);
-    paint(c, tube(leg, 40, 26), C.ink, C.grey, '#000', {angle: 2.8, density: 2, lightShare: 0.3, lw: 3});
-    paint(c, ell(560, 334, 20, 15, 24, 0.3), C.white, '#fff', C.pale, {density: 1.2, lightShare: 0.6, smooth: true, lw: 2.6});   // white paw on the button
-    [[548, 338], [558, 344], [569, 343]].forEach(([x, y]) => stroke(c, [[x, y], [x + 1, y + 5]], 1.8, C.grey, 0.9));
-    // three little curiosity marks above the button
-    [[536, 300, 548, 314], [560, 292, 562, 310], [586, 298, 576, 313]].forEach(([a, b, d, e]) => stroke(c, [[a, b], [d, e]], 2.4, C.ink, 0.8));
-
-    // paper grain over everything
-    c.save(); c.globalAlpha = 0.12; c.globalCompositeOperation = 'source-atop'; c.fillStyle = c.createPattern(grain, 'repeat'); c.globalCompositeOperation = 'multiply';
-    c.globalCompositeOperation = 'source-atop'; c.globalAlpha = 0.08; c.fillStyle = '#000'; c.restore();
-    return s;
+  // paper / pigment grain
+  let grainCv = null;
+  function grain(){
+    if (grainCv) return grainCv;
+    const g = document.createElement('canvas'); g.width = g.height = 256; const x = g.getContext('2d'), img = x.createImageData(256, 256);
+    for (let i = 0; i < img.data.length; i += 4) { const v = 120 + Math.random() * 135; img.data[i] = img.data[i + 1] = img.data[i + 2] = v; img.data[i + 3] = 255; }
+    x.putImageData(img, 0, 0); return (grainCv = g);
+  }
+  function texture(c, pts, smooth, strength = 0.25){
+    clipTo(c, pts, smooth, () => { c.globalCompositeOperation = 'multiply'; c.globalAlpha = strength; c.fillStyle = c.createPattern(grain(), 'repeat'); c.fillRect(-2000, -2000, 5000, 5000); });
+  }
+  // dry-brush streaks inside a shape
+  function streaks(c, pts, smooth, colors, n, len, wid, angle, alpha = [0.06, 0.2]){
+    const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]), x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+    clipTo(c, pts, smooth, () => { c.lineCap = 'round';
+      for (let i = 0; i < n; i++) { const x = rnd(x0, x1), y = rnd(y0, y1), a = angle + rnd(-0.25, 0.25), l = rnd(len[0], len[1]);
+        c.strokeStyle = pick(colors); c.globalAlpha = rnd(alpha[0], alpha[1]); c.lineWidth = rnd(wid[0], wid[1]);
+        c.beginPath(); c.moveTo(x, y); c.quadraticCurveTo(x + Math.cos(a) * l / 2 + rnd(-3, 3), y + Math.sin(a) * l / 2 + rnd(-3, 3), x + Math.cos(a) * l, y + Math.sin(a) * l); c.stroke(); } });
+  }
+  // halftone dots (for the record-sleeve look): darkness(x, y) in 0..1
+  function halftone(c, pts, smooth, darkness, color, cell = 7, angle = 0.26){
+    const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]), x0 = Math.min(...xs) - cell, x1 = Math.max(...xs) + cell, y0 = Math.min(...ys) - cell, y1 = Math.max(...ys) + cell;
+    const ca = Math.cos(angle), sa = Math.sin(angle), cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, R = Math.hypot(x1 - x0, y1 - y0) / 2;
+    clipTo(c, pts, smooth, () => { c.fillStyle = color; c.beginPath();
+      for (let u = -R; u < R; u += cell) for (let v = -R; v < R; v += cell) {
+        const x = cx + u * ca - v * sa, y = cy + u * sa + v * ca; if (x < x0 || x > x1 || y < y0 || y > y1) continue;
+        const d = Math.max(0, Math.min(1, darkness(x, y))); if (d < 0.03) continue;
+        const r = cell * 0.62 * Math.sqrt(d); c.moveTo(x + r, y); c.arc(x, y, r, 0, Math.PI * 2);
+      } c.fill(); });
   }
 
-  // ---------- the live layer: keys change colour, nothing else moves ----------
+  // ---------- p5.brush on one hidden WebGL canvas, laid onto 2D layers ----------
+  function brushReady(){
+    if (work) return true;
+    try {
+      if (!window.brush) return false;
+      const probe = document.createElement('canvas'); if (!probe.getContext('webgl2')) return false;
+      work = brush.createCanvas(W, H, {pixelDensity: S, parent: null}); brush.scaleBrushes(1.4);
+      return true;
+    } catch (e) { console.warn('p5.brush unavailable', e); work = null; return false; }
+  }
+  // paint with p5.brush in logical coordinates, then lay it onto c (whose transform maps logical → pixels)
+  function brushLayer(c, fn, ox = 0, oy = 0){
+    if (!brushReady()) return false;
+    try {
+      brush.clear(); const gl = work.getContext('webgl2'); gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+      brush.push(); brush.translate(-W / 2 - ox, -H / 2 - oy); brush.seed(Math.floor(rand() * 1e6));
+      fn(brush);
+      brush.pop(); brush.render();
+      c.drawImage(work, 0, 0, W * S, H * S, ox, oy, W, H);
+      return true;
+    } catch (e) { console.warn('brush layer failed', e); try { brush.pop(); } catch (_) {} return false; }
+  }
+
+  // ---------- keys ----------
+  function keysFor(KB){
+    const whites = [], blacks = [], ww = (KB.x1 - KB.x0) / 7.6, off = 0.3 * ww; let wi = 0;
+    for (let n = 63; n <= 75; n++) {
+      const pc = n % 12;
+      if (BLACK.has(pc)) { const cx = KB.x0 + off + wi * ww, bw = ww * (KB.blackW || 0.58); blacks.push({pc, black: true, x0: cx - bw / 2, x1: cx + bw / 2, y0: KB.top, y1: KB.blackBottom}); }
+      else { const g = KB.gap ?? 2; whites.push({pc, black: false, x0: KB.x0 + off + wi * ww + g, x1: KB.x0 + off + (wi + 1) * ww - g, y0: KB.top, y1: KB.bottom}); wi++; }
+    }
+    const all = [...whites, ...blacks];
+    all.forEach(k => { k.x0 = Math.max(KB.x0, k.x0); k.x1 = Math.min(KB.x1, k.x1); k.cx = (k.x0 + k.x1) / 2;
+      const j = KB.jitter || 0; k.poly = [[k.x0 + rnd(-j, j), k.y0 + rnd(-j, j)], [k.x1 + rnd(-j, j), k.y0 + rnd(-j, j)], [k.x1 + rnd(-j, j), k.y1 + rnd(-j, j)], [k.x0 + rnd(-j, j), k.y1 + rnd(-j, j)]];
+      // where a paw lands: black keys in the middle, white keys below the black ones
+      k.paw = k.black ? [k.cx, (KB.top + KB.blackBottom) / 2 + 14] : [k.cx, (KB.blackBottom + KB.bottom) / 2 - 6]; });
+    return {whites, blacks, all, KB};
+  }
+  const keyBox = KB => ({x: KB.x0 - 8, y: KB.top - 8, w: KB.x1 - KB.x0 + 16, h: KB.bottom - KB.top + 16});
+
+  // the toolkit each personality paints with
+  const P = {W, H, BLACK, rand, rnd, pick, pathOf, ell, bez, quad, curve, ribbon, taper, calli, outline, inkline, shade, fill, clipTo, jag, texture, streaks, halftone, grain, brushLayer,
+             get brushOk(){ return brushReady(); }};
+  Duo.P = P;
+  Duo.register = s => { Duo.skins[s.id] = s; if (!Duo.order.includes(s.id)) Duo.order.push(s.id); };
+
+  // ---------- painting a personality: picture, key-mark sheets, the cat's body ----------
+    function paintSkin(){
+    seedN = skin.seed || 7;
+    K = keysFor(skin.KB);
+    const b = document.createElement('canvas'); b.width = W * S; b.height = H * S; const c = b.getContext('2d'); c.scale(S, S);
+    skin.paint(c, P, K);
+    base = b;
+    const box = keyBox(skin.KB); sheets = {};
+    for (const kind of KINDS) for (const black of [false, true]) {
+      const sh = document.createElement('canvas'); sh.width = Math.ceil(box.w * S); sh.height = Math.ceil(box.h * S);
+      const sc = sh.getContext('2d'); sc.setTransform(S, 0, 0, S, -box.x * S, -box.y * S);
+      skin.markKeys(sc, kind, black ? K.blacks : K.whites, P);
+      sheets[kind + (black ? 'B' : 'W')] = sh;
+    }
+    Duo.box = box;
+    // the cat's head is painted once; its body, legs and tail are drawn live (they stretch)
+    const hs = document.createElement('canvas'); hs.width = HS.w * S; hs.height = HS.h * S; const hc = hs.getContext('2d');
+    hc.setTransform(S, 0, 0, S, -HS.x * S, -HS.y * S);
+    skin.cat.paintHead(hc, P, HS);
+    headSprite = hs;
+  }
+
+  // ---------- the still layer: picture + key marks + names ----------
   function render(){
-    if (!Duo.ok) return;
-    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(base, 0, 0); ctx.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+    if (!Duo.ok || !base) return;
+    const z = dpr * dispK;
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.drawImage(base, 0, 0, W * S, H * S, 0, 0, W * z, H * z);
     const you = new Set(state.you), tone = new Set(state.tones), mc = new Set(state.magchord);
-    const wash = (pts, color, alpha) => { ctx.save(); pathOf(ctx, pts); ctx.globalAlpha = alpha; ctx.fillStyle = color; ctx.fill();
-      ctx.globalAlpha = 0.3; ctx.globalCompositeOperation = 'multiply'; ctx.fillStyle = ctx.createPattern(grain, 'repeat'); ctx.fill(); ctx.restore(); };
-    const hatch = (x0, x1, y0, y1, color) => { ctx.save(); ctx.beginPath(); ctx.rect(x0, y0, x1 - x0, y1 - y0); ctx.clip(); ctx.strokeStyle = color; ctx.lineWidth = 1.6; ctx.globalAlpha = 0.55;
-      for (let x = x0 - 80; x < x1; x += 9) { ctx.beginPath(); ctx.moveTo(x, y1); ctx.lineTo(x + 70, y0); ctx.stroke(); } ctx.restore(); };
-    const sets = [[KEYS.whites, KB.bottom, false], [KEYS.blacks, KB.blackBottom, true]];
-    sets.forEach(([keys, bottom, black]) => keys.forEach(k => {
-      const pts = black ? [[k.x0, KB.top], [k.x1, KB.top], [k.x1, bottom], [k.x0, bottom]] : [[k.x0 + 2, KB.top], [k.x1 - 2, KB.top], [k.x1 - 2, bottom], [k.x0 + 2, bottom]];
-      if (you.has(k.pc)) wash(pts, C.red, black ? 0.9 : 0.78);
-      else if (state.mel === k.pc) wash(pts, black ? '#555' : C.ink, black ? 0.95 : 0.82);
-      else if (mc.has(k.pc)) wash(pts, black ? '#666' : '#9a958b', 0.7);
-      else if (tone.has(k.pc)) hatch(k.x0 + 4, k.x1 - 4, black ? KB.top + 4 : KB.top + 90, bottom - 4, black ? '#cfc8b8' : C.char);
-      if (black) { if (you.has(k.pc) || state.mel === k.pc) ink(ctx, pts, 2.2); }
-      else if (you.has(k.pc) || state.mel === k.pc || mc.has(k.pc)) ink(ctx, pts, 2.2);
-    }));
-    // black keys sit on top of any white-key wash
-    KEYS.blacks.forEach(k => { const lit = you.has(k.pc) || state.mel === k.pc || mc.has(k.pc) || tone.has(k.pc); if (lit) return;
-      const touched = KEYS.whites.some(w => (you.has(w.pc) || state.mel === w.pc || mc.has(w.pc)) && w.x1 > k.x0 && w.x0 < k.x1);
-      if (touched) { ctx.save(); ctx.fillStyle = C.ink; ctx.fillRect(k.x0, KB.top, k.x1 - k.x0, KB.blackBottom - KB.top); ctx.restore(); ink(ctx, [[k.x0, KB.top], [k.x1, KB.top], [k.x1, KB.blackBottom], [k.x0, KB.blackBottom]], 2.2); } });
-    // sargam names
-    ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    KEYS.whites.forEach(k => { const lit = you.has(k.pc) || state.mel === k.pc;
-      ctx.font = `italic 30px 'Instrument Serif', Georgia, serif`; ctx.fillStyle = lit ? C.white : tone.has(k.pc) ? C.ink : '#6a645a';
-      ctx.fillText(opts.label(k.pc, false), (k.x0 + k.x1) / 2, KB.bottom - 26); });
-    KEYS.blacks.forEach(k => { const lit = you.has(k.pc) || state.mel === k.pc;
-      ctx.font = `italic 21px 'Instrument Serif', Georgia, serif`; ctx.fillStyle = lit ? C.white : tone.has(k.pc) ? C.white : '#9b968c';
-      ctx.fillText(opts.label(k.pc, true), (k.x0 + k.x1) / 2, KB.blackBottom - 18); });
-    ctx.restore();
+    const kindOf = k => you.has(k.pc) ? 'you' : state.mel === k.pc ? 'mel' : mc.has(k.pc) ? 'mc' : tone.has(k.pc) ? 'tone' : null;
+    const box = Duo.box, pad = skin.KB.markPad ?? 5;
+    const blit = (src, k) => {
+      const x = k.x0 - pad, y = k.y0 - pad, w = k.x1 - k.x0 + pad * 2, h = k.y1 - k.y0 + pad * 2;
+      if (!src) ctx.drawImage(base, x * S, y * S, w * S, h * S, x * z, y * z, w * z, h * z);
+      else ctx.drawImage(src, (x - box.x) * S, (y - box.y) * S, w * S, h * S, x * z, y * z, w * z, h * z);
+    };
+    let touched = false;
+    K.whites.forEach(k => { k.kind = kindOf(k); if (k.kind) { blit(sheets[k.kind + 'W'], k); touched = true; } });
+    K.blacks.forEach(k => { k.kind = kindOf(k); if (k.kind) blit(sheets[k.kind + 'B'], k); else if (touched) blit(null, k); });
+    // sargam names, Bhatkhande style: komal underlined, tivra with a tick above
+    ctx.setTransform(z, 0, 0, z, 0, 0);
+    K.all.forEach(k => {
+      const raw = opts.label(k.pc), komal = raw.startsWith('komal '), tivra = raw.startsWith('tivra '), name = raw.replace(/^(komal|tivra) /, '');
+      const st = skin.label(k, k.kind);
+      ctx.font = st.font; ctx.fillStyle = st.color; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+      const y = st.y, wd = ctx.measureText(name).width;
+      ctx.fillText(name, k.cx, y);
+      ctx.strokeStyle = st.color; ctx.lineCap = 'round'; ctx.lineWidth = st.mark || 2.6;
+      if (komal) { ctx.beginPath(); ctx.moveTo(k.cx - wd / 2, y + st.size * 0.2); ctx.lineTo(k.cx + wd / 2, y + st.size * 0.2); ctx.stroke(); }
+      if (tivra) { ctx.beginPath(); ctx.moveTo(k.cx, y - st.size * 0.92); ctx.lineTo(k.cx, y - st.size * 1.22); ctx.stroke(); }
+    });
   }
-  let k = 1;
+
+  // ---------- the cat: long, squishy, absurd ----------
+  // Its legs hang in one straight row under its belly. Each leg drops straight down onto its note, and the body
+  // stretches like dough to span whatever is sounding: a fat loaf for one note, a long thin noodle for a wide chord.
+  // Left to right: the tail (the thumb), two hind legs, any extra legs it has grown, two front legs.
+  const SLOTS = ['tail', 'h1', 'h2', 'x1', 'x2', 'x3', 'f1', 'f2'];
+  const C = {limbs: {}, R: 380, F: 620, vR: 0, vF: 0, T: 110, t: 0, running: false, last: 0, lastSig: '', extraMood: false, looking: null, centre: 500};
+  const FLOOR = () => skin.cat.floor ?? (skin.KB.top - 92);       // where the belly sits, just above the Casio
+  const pawY = (k, hover) => k.paw[1] - (hover ? 44 : 0);
+  function initCat(){
+    SLOTS.forEach((id, i) => { C.limbs[id] = {id, x: 500, tx: 500, y: FLOOR() + 40, ty: FLOOR() + 40, vx: 0, vy: 0, key: null, hover: false, squash: 0, grow: id[0] === 'x' ? 0 : 1, wasLifted: false, used: false}; });
+    C.centre = 500; C.R = 370; C.F = 630; C.lastSig = ''; layoutFree([]);
+    Object.values(C.limbs).forEach(l => { l.x = l.tx; l.y = l.ty; });
+  }
+  // the legs without a note dangle as stubs, spaced along the belly between their neighbours
+  function layoutFree(assigned){
+    const legs = ['h1', 'h2', 'x1', 'x2', 'x3', 'f1', 'f2'].filter(id => id[0] !== 'x' || C.limbs[id].used);
+    const fixed = legs.map(id => assigned.includes(id) ? C.limbs[id].tx : null);
+    if (fixed.every(v => v == null)) { const n = legs.length, w = 54; legs.forEach((id, i) => C.limbs[id].tx = C.centre + (i - (n - 1) / 2) * w); }
+    else legs.forEach((id, i) => {
+      if (fixed[i] != null) return;
+      let l = i - 1; while (l >= 0 && fixed[l] == null) l--;
+      let r = i + 1; while (r < legs.length && fixed[r] == null) r++;
+      const lx = l >= 0 ? fixed[l] : null, rx = r < legs.length ? fixed[r] : null;
+      C.limbs[id].tx = lx != null && rx != null ? lx + (rx - lx) * (i - l) / (r - l) : lx != null ? lx + 44 * (i - l) : rx - 44 * (r - i);
+    });
+    legs.forEach(id => { const L = C.limbs[id]; if (!assigned.includes(id)) { L.key = null; L.ty = FLOOR() + 44; } });
+    if (!assigned.includes('tail')) { C.limbs.tail.key = null; }
+  }
+  function targetsFrom(s){
+    // Magenta plays through the cat; on your turn its paws hover over the chord's notes as a hint
+    const keyOf = pc => K.all.find(k => k.pc === pc);
+    let pcs = [], hover = false;
+    if (s.mel >= 0 || (s.magchord && s.magchord.length)) pcs = [...new Set([...(s.magchord || []), ...(s.mel >= 0 ? [s.mel] : [])])];
+    else if (s.tones && s.tones.length) { pcs = [...s.tones]; hover = true; }
+    return {keys: pcs.map(keyOf).filter(Boolean).sort((a, b) => a.cx - b.cx), hover, mel: s.mel};
+  }
+  function assign(){
+    if (!skin || !K) return;
+    const {keys, hover, mel} = targetsFrom(state);
+    const sig = keys.map(k => k.pc).join() + (hover ? 'h' : 'p');
+    if (sig === C.lastSig) return;
+    const changed = C.lastSig.replace(/[hp]$/, '') !== keys.map(k => k.pc).join();
+    C.lastSig = sig;
+    // now and then, for no reason at all, it grows an extra leg
+    if (changed) C.extraMood = keys.length >= 3 && rand() < 0.14;
+    const n = keys.length;
+    let use;
+    if (n === 0) use = [];
+    else if (n === 1) use = ['f2'];
+    else if (n === 2) use = ['h1', 'f2'];
+    else if (n === 3) use = C.extraMood ? ['h1', 'x1', 'f2'] : ['h1', 'f1', 'f2'];
+    else if (n === 4) use = C.extraMood ? ['h1', 'h2', 'x1', 'f2'] : ['h1', 'h2', 'f1', 'f2'];
+    else { const extra = Math.max(0, Math.min(3, n - 5)) + (C.extraMood && n < 8 ? 1 : 0); use = ['tail', 'h1', 'h2', ...['x1', 'x2', 'x3'].slice(0, Math.min(3, extra)), 'f1', 'f2']; }
+    use = use.slice(0, n);
+    // more notes than limbs: keep the outer notes and the melody
+    let chosen = keys;
+    if (n > use.length) { const m = keys.find(k => k.pc === mel); const inner = keys.slice(1, -1).filter(k => k !== m); chosen = [keys[0], ...(m && m !== keys[0] && m !== keys[n - 1] ? [m] : []), ...inner].slice(0, use.length - 1).concat([keys[n - 1]]).sort((a, b) => a.cx - b.cx); }
+    ['x1', 'x2', 'x3'].forEach(id => C.limbs[id].used = use.includes(id));
+    use.forEach((id, i) => { const L = C.limbs[id], k = chosen[i]; L.key = k; L.hover = hover; L.tx = k.cx; L.ty = pawY(k, hover); });
+    if (n) C.centre = keys.reduce((a, k) => a + k.cx, 0) / n;
+    layoutFree(use);
+    C.looking = keys.find(k => k.pc === mel) || keys[keys.length - 1] || null;
+    kick();
+  }
+  function spring(v, x, tx, k, d, dt){ return v + ((tx - x) * k - v * d) * dt; }
+  function step(dt){
+    C.t += dt;
+    let busy = false;
+    const lifted = FLOOR() + 50;
+    SLOTS.forEach(id => {
+      const L = C.limbs[id];
+      L.grow += ((id[0] !== 'x' || L.used ? 1 : 0) - L.grow) * Math.min(1, dt * 9);
+      // slide across lifted, then drop straight down onto the note
+      const far = Math.abs(L.tx - L.x) > 10;
+      const wantY = L.key && far ? Math.min(lifted, L.ty) : L.ty;
+      L.vx = spring(L.vx, L.x, L.tx, 320, 26, dt); L.x += L.vx * dt;
+      L.vy = spring(L.vy, L.y, wantY, 520, 30, dt); L.y += L.vy * dt;
+      if (far && L.key) L.wasLifted = true;
+      if (L.wasLifted && !far && Math.abs(L.y - L.ty) < 4) { L.wasLifted = false; if (!L.hover) L.squash = 1; }
+      if (L.squash > 0) L.squash = Math.max(0, L.squash - dt * 4);
+      if (Math.abs(L.tx - L.x) > 0.5 || Math.abs(L.vx) > 1 || Math.abs(wantY - L.y) > 0.5 || Math.abs(L.vy) > 1 || L.squash > 0 || Math.abs((id[0] !== 'x' || L.used ? 1 : 0) - L.grow) > 0.01) busy = true;
+    });
+    // the body stretches over the legs that are out, with a bit of give
+    const out = SLOTS.filter(id => id !== 'tail' && C.limbs[id].grow > 0.5).map(id => C.limbs[id].x);
+    const tailOn = !!C.limbs.tail.key;
+    const lo = Math.min(...out, tailOn ? C.limbs.tail.x : Infinity), hi = Math.max(...out);
+    const pad = skin.cat.pad ?? 44, minLen = skin.cat.minLen ?? 230;
+    let tR = lo - (tailOn ? 6 : pad), tF = hi + pad;
+    if (tF - tR < minLen) { const m = (tF + tR) / 2; tR = m - minLen / 2; tF = m + minLen / 2; }
+    C.vR = spring(C.vR, C.R, tR, 160, 13, dt); C.R += C.vR * dt;
+    C.vF = spring(C.vF, C.F, tF, 160, 13, dt); C.F += C.vF * dt;
+    // squishy: the longer it gets, the thinner (it keeps its volume)
+    const len = Math.max(80, C.F - C.R), T0 = skin.cat.thick ?? 112;
+    C.T = Math.max(46, Math.min(T0 * 1.25, T0 * Math.sqrt((skin.cat.restLen ?? 280) / len)));
+    if (!tailOn) { const L = C.limbs.tail; L.tx = C.R; L.x += (C.R - L.x) * Math.min(1, dt * 20); }
+    if (Math.abs(C.vR) > 1 || Math.abs(C.vF) > 1 || Math.abs(tR - C.R) > 0.5 || Math.abs(tF - C.F) > 0.5) busy = true;
+    if (!tailOn) busy = busy || !document.hidden && C.t < 1.2;
+    return busy;
+  }
+  function geom(){ const fl = FLOOR(); return {R: C.R, F: C.F, T: C.T, bottom: fl, top: fl - C.T, mid: fl - C.T / 2, t: C.t}; }
+  let headSprite = null; const HS = {x: -160, y: -175, w: 320, h: 260};
+  function drawCat(){
+    const z = dpr * dispK, c = cat;
+    c.setTransform(1, 0, 0, 1, 0, 0); c.clearRect(0, 0, catCv.width, catCv.height);
+    if (!headSprite) return;
+    c.setTransform(z, 0, 0, z, 0, 0);
+    const g = geom(), look = skin.cat;
+    // shadows of the paws that are down on keys
+    SLOTS.forEach(id => { const L = C.limbs[id]; if (!L.key || L.grow < 0.5) return;
+      c.save(); c.globalAlpha = L.hover ? 0.1 : 0.2; c.fillStyle = '#000'; c.beginPath(); c.ellipse(L.x, L.ty + (L.hover ? 30 : 0) + 12, 24, 6, 0, 0, 7); c.fill(); c.restore(); });
+    // legs hang behind the belly, straight down
+    SLOTS.forEach(id => { if (id === 'tail') return; const L = C.limbs[id]; if (L.grow < 0.02) return;
+      const top = g.bottom - Math.min(30, g.T * 0.4), y = top + (L.y - top) * L.grow;
+      c.globalAlpha = L.hover && L.key ? 0.62 : 1;      // on your turn the hint paws are ghostly
+      look.leg(c, {x: L.x, top, y, squash: L.squash, pressed: !!L.key && !L.hover, hover: L.hover && !!L.key, extra: id[0] === 'x', hind: id[0] === 'h'}, P); c.globalAlpha = 1; });
+    // the tail: on a note it hangs straight down from the rump; otherwise it waves in the air
+    const Lt = C.limbs.tail, rx = g.R + 8, ry = g.mid;
+    let tail;
+    if (Lt.key) tail = bez([rx + 10, ry], [Lt.x - 30, ry - 70], [Lt.x - 6, ry - 40], [Lt.x, Lt.y], 24);
+    else { const sw = Math.sin(C.t * 2.4) * 16; tail = bez([rx + 14, ry], [rx - 70, ry - 10], [rx - 80 + sw, ry - 120], [rx - 30 + sw, ry - 160], 24); }
+    look.tail(c, tail, {down: !!Lt.key, squash: Lt.squash}, P);
+    look.body(c, g, P);
+    // the head rides on the front end
+    const hx = g.F - (skin.cat.headIn ?? 30), hy = g.top + (skin.cat.headDrop ?? 18);
+    c.save(); c.translate(hx, hy); c.rotate(Math.max(-0.12, Math.min(0.12, C.vF / 2500)));
+    c.drawImage(headSprite, HS.x, HS.y, HS.w, HS.h);
+    if (look.eyes) {   // the eyes follow the note it's playing
+      const tgt = C.looking ? C.looking.paw : [hx + 200, 560];
+      look.eyes.forEach(([ex, ey, r]) => {
+        const a = Math.atan2(tgt[1] - (hy + ey), tgt[0] - (hx + ex));
+        c.fillStyle = look.pupil || '#111'; c.beginPath(); c.ellipse(ex + Math.cos(a) * r * 0.42, ey + Math.sin(a) * r * 0.42, r * 0.42, r * 0.62, 0, 0, 7); c.fill();
+        c.fillStyle = '#fff'; c.beginPath(); c.arc(ex + Math.cos(a) * r * 0.42 - r * 0.15, ey + Math.sin(a) * r * 0.42 - r * 0.25, r * 0.14, 0, 7); c.fill();
+      });
+    }
+    c.restore();
+  }
+  function frame(now){
+    const dt = Math.min(0.04, (now - (C.last || now)) / 1000); C.last = now;
+    const busy = step(dt);
+    drawCat();
+    if (busy) requestAnimationFrame(frame); else { C.running = false; C.last = 0; }
+  }
+  function kick(){ if (!C.running && Duo.ok) { C.running = true; C.last = 0; C.t = C.t % 100; requestAnimationFrame(frame); } }
+
   function resize(){
-    dpr = Math.min(2, window.devicePixelRatio || 1);
-    const w = Math.max(200, host.clientWidth); k = w / W;
-    cv.style.width = w + 'px'; cv.style.height = H * k + 'px';
-    cv.width = Math.round(w * dpr); cv.height = Math.round(H * k * dpr);
-    const s = paintBase(); base = document.createElement('canvas'); base.width = cv.width; base.height = cv.height;
-    base.getContext('2d').drawImage(s, 0, 0, cv.width, cv.height);
-    render();
+    if (!cv) return;
+    dpr = Math.min(3, window.devicePixelRatio || 1);
+    const w = Math.max(200, host.clientWidth); dispK = w / W;
+    [cv, catCv].forEach(x => { x.style.width = w + 'px'; x.style.height = H * dispK + 'px'; x.width = Math.round(w * dpr); x.height = Math.round(H * dispK * dpr); });
+    wrap.style.height = H * dispK + 'px';
+    render(); drawCat();
   }
+
   let lastSig = '';
-  Duo.update = s => { const sig = JSON.stringify(s); if (sig === lastSig) return; lastSig = sig; state = s; render(); };
+  Duo.update = s => { const sig = JSON.stringify(s); if (sig === lastSig) return; lastSig = sig; state = s; render(); assign(); };
+  Duo.setSkin = id => {
+    const s = Duo.skins[id] || Duo.skins[Duo.order[0]]; if (!s) return false;
+    skin = s; Duo.current = s.id;
+    document.body.classList.remove(...Duo.order.map(i => 'skin-' + i)); document.body.classList.add('skin-' + s.id);
+    if (cv) { cv.setAttribute('aria-label', s.alt || s.name); paintSkin(); initCat(); resize(); C.lastSig = '#'; assign(); kick(); }
+    return true;
+  };
   Duo.init = function (h, o){
     try {
-      host = h; opts = o; grain = makeGrain();
-      cv = document.createElement('canvas'); ctx = cv.getContext('2d'); cv.setAttribute('role', 'img');
-      cv.setAttribute('aria-label', 'A long black-and-white cat wrapped around a red Casio keyboard, poking one of its buttons');
-      host.innerHTML = ''; host.appendChild(cv);
-      Duo.ok = true; resize();
-      let t; new ResizeObserver(() => { clearTimeout(t); t = setTimeout(resize, 150); }).observe(host);
+      host = h; opts = o; S = Math.min(2, Math.max(1.5, window.devicePixelRatio || 1));
+      wrap = document.createElement('div'); wrap.style.cssText = 'position:relative;width:100%';
+      cv = document.createElement('canvas'); ctx = cv.getContext('2d'); cv.setAttribute('role', 'img'); cv.style.display = 'block';
+      catCv = document.createElement('canvas'); cat = catCv.getContext('2d'); catCv.style.cssText = 'position:absolute;left:0;top:0;pointer-events:none';
+      catCv.setAttribute('aria-hidden', 'true');
+      host.innerHTML = ''; wrap.appendChild(cv); wrap.appendChild(catCv); host.appendChild(wrap);
+      Duo.ok = true;
+      Duo.setSkin(o.skin);
+      let raf = 0; const re = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(resize); };
+      window.addEventListener('resize', re); if (window.ResizeObserver) new ResizeObserver(re).observe(host);
       if (document.fonts) document.fonts.ready.then(render);
       return true;
-    } catch (e) { console.error('painting unavailable', e); Duo.ok = false; return false; }
+    } catch (e) { console.warn('painting failed', e); Duo.ok = false; return false; }
   };
-  window.Duo = Duo;
+  Duo._debug = () => ({C, K});
 })();

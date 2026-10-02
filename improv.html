@@ -5,18 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Magenta Improviser</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;650;750&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@500;600;700;800;900&display=swap" rel="stylesheet">
 <style>
   /* Ink on paper. The keyboard is drawn by hand (Rough.js) in steep perspective, like the view from the bench.
      Colour only means something: pink = you, blue = Magenta, ochre = the chord's notes. */
   :root{--paper:#efe8da;--paper2:#e6ddca;--ink:#17161a;--char:#4a4741;--dim:#7d776b;--line:#cfc4ad;
         --you:#d8417f;--mel:#2f6fb5;--magchord:#86aedb;--ochre:#d99a2b;--ok:#3f9a62;--bad:#c4462f;
         --text:var(--ink);--brass:var(--ochre);--accent:var(--ink);--panel:#f4eee2;--panel2:#e7dfcd;--want:var(--ochre);
-        --hand:'Kalam',cursive;--serif:'Instrument Serif',Georgia,serif;--ui:'Figtree',system-ui,-apple-system,sans-serif}
-  @font-face{font-family:'Kalam';font-weight:400;font-display:swap;src:url(fonts/kalam-latin-400-normal.woff2) format('woff2')}
-  @font-face{font-family:'Instrument Serif';font-style:normal;font-display:swap;src:url(fonts/instrument-serif-latin-400-normal.woff2) format('woff2')}
-  @font-face{font-family:'Instrument Serif';font-style:italic;font-display:swap;src:url(fonts/instrument-serif-latin-400-italic.woff2) format('woff2')}
-  @font-face{font-family:'Kalam';font-weight:700;font-display:swap;src:url(fonts/kalam-latin-700-normal.woff2) format('woff2')}
+        --hand:'Fraunces',Georgia,serif;--serif:'Fraunces',Georgia,serif;--ui:'Figtree',system-ui,-apple-system,sans-serif;--red:#c8302b}
+  /* one family, set heavy and upright: Fraunces (Undercase Type, SIL OFL), soft corners, big optical size */
+  @font-face{font-family:'Fraunces';font-style:normal;font-weight:100 900;font-display:swap;src:url(fonts/fraunces-latin-full-normal.woff2) format('woff2')}
+  .fr{font-family:'Fraunces',Georgia,serif;font-style:normal;font-variation-settings:"SOFT" 100,"WONK" 0,"opsz" 144}
   *{box-sizing:border-box}
   html,body{height:100%}
   body{margin:0;color:var(--ink);font-family:var(--ui);display:flex;flex-direction:column;overflow:hidden;
@@ -30,51 +29,58 @@
   button:disabled{opacity:.35}
   button:focus-visible,.chip:focus-visible{outline:2px solid var(--you);outline-offset:2px}
 
-  .top{display:flex;align-items:center;gap:12px;padding:10px 16px;padding-top:max(10px,env(safe-area-inset-top));position:relative;z-index:2}
-  .duet{display:flex;align-items:center;font-family:var(--hand);font-size:20px;gap:6px}
-  .duet span{padding:2px 10px;color:var(--dim);position:relative;transition:color .25s}
-  .duet span::after{content:"";position:absolute;left:6px;right:6px;bottom:2px;height:7px;border-radius:4px;opacity:0;transform:scaleX(.2);transition:opacity .25s,transform .35s cubic-bezier(.3,.7,.2,1);z-index:-1}
-  .duet span.y::after{background:var(--you)} .duet span.m::after{background:var(--mel)}
-  .duet.you span.y{color:var(--you)} .duet.you span.y::after{opacity:.35;transform:none}
-  .duet.mag span.m{color:var(--mel)} .duet.mag span.m::after{opacity:.35;transform:none}
+  .top{display:flex;align-items:center;gap:12px;padding:12px 18px 4px;padding-top:max(12px,env(safe-area-inset-top));position:relative;z-index:2}
+  /* who's playing: two fat words, the live one inked in */
+  .duet{display:flex;align-items:baseline;gap:8px;font-family:'Fraunces',Georgia,serif;font-variation-settings:"SOFT" 100,"opsz" 72;font-weight:800;font-size:22px;letter-spacing:-.01em}
+  .duet span{color:#b3aa98;position:relative;transition:color .25s}
+  .duet i{font-style:normal;font-weight:500;color:#b3aa98}
+  .duet span::after{content:"";position:absolute;left:-2px;right:-2px;bottom:-5px;height:4px;border-radius:2px;opacity:0;transform:scaleX(.2);transform-origin:left;transition:opacity .25s,transform .35s cubic-bezier(.3,.7,.2,1)}
+  .duet span.y::after{background:var(--red)} .duet span.m::after{background:var(--ink)}
+  .duet.you span.y{color:var(--red)} .duet.you span.y::after{opacity:1;transform:none}
+  .duet.mag span.m{color:var(--ink)} .duet.mag span.m::after{opacity:1;transform:none}
   .duet.think span.m{animation:breathe 1s ease-in-out infinite}
-  .duet i{font-style:normal;color:var(--dim)}
   @keyframes breathe{50%{opacity:.4}}
   .spacer{flex:1}
-  #play,#stop{background:var(--ink);color:var(--paper);border:none;font-weight:750;padding:10px 22px;font-size:16px}
-  #stop{display:none;background:transparent;color:var(--ink);border:1.5px solid var(--ink)}
+  #play,#stop{background:var(--ink);color:var(--paper);border:none;font-weight:800;padding:10px 22px;font-size:16px;letter-spacing:.01em}
+  #stop{display:none;background:transparent;color:var(--ink);box-shadow:inset 0 0 0 2.5px var(--ink)}
   body.playing #play{display:none} body.playing #stop{display:inline-block}
-  #load{font-size:13px;padding:7px 12px;border-color:var(--line);color:var(--dim)}
+  #load{font-size:13px;font-weight:700;padding:7px 12px;border:none;box-shadow:inset 0 0 0 1.5px var(--line);color:var(--dim)}
   #load.ready{display:none}
-  #menuBtn{width:42px;height:42px;padding:0;font-size:18px;display:grid;place-items:center;border-color:transparent}
+  #menuBtn{width:42px;height:42px;padding:0;font-size:20px;display:grid;place-items:center;border-color:transparent}
 
-  /* the sequence, lettered like a lead sheet */
-  .strip{display:flex;justify-content:center;align-items:baseline;font-family:var(--hand);font-size:28px;color:var(--dim);
-         padding:0 16px;white-space:nowrap;overflow:hidden;min-height:36px;position:relative;z-index:2}
-  .strip .bar{padding:0 14px;border-left:2px solid var(--char)}
-  .strip .bar:last-child{border-right:2px solid var(--char)}
-  .strip .bar.done{color:var(--ochre)}
-  .strip .bar.now{color:var(--ink);font-weight:700}
-  .strip .bar.now.you{color:var(--you)} .strip .bar.now.mag{color:var(--mel)}
-  .strip .more{padding:0 8px;opacity:.5}
+  /* the sequence: fat chord tokens; the one you're on is a solid pill */
+  .strip{display:flex;justify-content:center;align-items:center;gap:6px;font-family:'Fraunces',Georgia,serif;font-variation-settings:"SOFT" 100,"opsz" 72;
+         font-weight:800;font-size:23px;color:#a69d8a;padding:6px 16px 0;white-space:nowrap;overflow:hidden;min-height:46px;position:relative;z-index:2}
+  .strip .bar{padding:4px 14px 6px;border-radius:999px;line-height:1;transition:background .2s,color .2s}
+  .strip .bar.done{color:var(--char)}
+  .strip .bar.done::after{content:"✓";font-family:var(--ui);font-weight:900;font-size:.55em;margin-left:5px;vertical-align:.35em;color:var(--red)}
+  .strip .bar.now{background:var(--ink);color:var(--paper)}
+  .strip .bar.now.you{background:var(--red);color:#fff7ef}
+  .strip .more{padding:0 4px;color:#b3aa98}
 
-  .stage{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:8px 12px 14px;min-height:0;position:relative;z-index:1;overflow:hidden}
+  .stage{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;padding:4px 12px 14px;min-height:0;position:relative;z-index:1;overflow:hidden}
   .lead{position:relative;display:flex;flex-direction:column;align-items:center}
-  /* chord symbols set like a jazz chart: a big brush-lettered root, the quality raised and small */
-  #chord{font-family:var(--hand);font-weight:700;font-size:clamp(80px,16vw,140px);line-height:.9;position:relative;color:var(--ink);letter-spacing:-.02em}
+  /* the chord symbol is the hero: a fat soft serif root, quality raised */
+  #chord{font-family:'Fraunces',Georgia,serif;font-variation-settings:"SOFT" 100,"WONK" 0,"opsz" 144;font-weight:900;
+         font-size:clamp(84px,17vw,168px);line-height:.86;position:relative;color:var(--ink);letter-spacing:-.045em}
   .cs{white-space:nowrap}
-  .cs .acc{font-size:.52em;vertical-align:.62em;margin-left:.02em}
-  .cs .q{font-size:.46em;vertical-align:.78em;margin-left:.05em;letter-spacing:0}
-  .cs .sl{font-size:.42em;margin-left:.08em;opacity:.75}
-  #ring{position:absolute;left:50%;top:50%;width:10px;height:10px;margin:-5px 0 0 -5px;border-radius:50%;pointer-events:none;opacity:0;border:3px solid var(--ochre)}
+  .cs .acc{font-size:.5em;vertical-align:.7em;margin-left:.01em;font-weight:800;letter-spacing:0}
+  .cs .q{font-size:.42em;vertical-align:.92em;margin-left:.04em;letter-spacing:-.02em;font-weight:800}
+  .cs .sl{font-size:.4em;margin-left:.06em;color:var(--char);font-weight:700}
+  #ring{position:absolute;left:50%;top:50%;width:10px;height:10px;margin:-5px 0 0 -5px;border-radius:50%;pointer-events:none;opacity:0;border:3px solid var(--red)}
   #ring.go{animation:ring .9s ease-out}
   @keyframes ring{0%{opacity:.9;transform:scale(1)}100%{opacity:0;transform:scale(34)}}
   #chord.ting{animation:inked .9s ease-out}
-  @keyframes inked{0%{color:var(--ochre)}100%{color:var(--ink)}}
+  @keyframes inked{0%{color:var(--red)}100%{color:var(--ink)}}
   @media (prefers-reduced-motion: reduce){#ring.go,#chord.ting,.duet.think span.m{animation:none}}
-  #bar{font-family:var(--serif);font-style:italic;font-size:26px;color:var(--ochre);min-height:30px;letter-spacing:.04em;word-spacing:.35em}
-  #note{font-family:var(--serif);font-style:italic;font-size:24px;color:var(--mel);min-height:28px}
-  #streak{position:fixed;right:18px;bottom:max(14px,env(safe-area-inset-bottom));font-family:var(--hand);font-size:18px;color:var(--ochre);z-index:2}
+  /* the chord's notes in sargam, Bhatkhande style: komal underlined, tivra ticked */
+  #bar{display:flex;gap:7px;justify-content:center;min-height:36px;margin-top:10px}
+  #bar .sw{font-family:'Fraunces',Georgia,serif;font-variation-settings:"SOFT" 100,"opsz" 48;font-weight:750;font-size:19px;line-height:1;
+           padding:7px 12px 8px;border-radius:999px;box-shadow:inset 0 0 0 2px var(--ink);color:var(--ink);position:relative}
+  #bar .sw.k{text-decoration:underline;text-decoration-thickness:2.5px;text-underline-offset:4px}
+  #bar .sw.t::before{content:"";position:absolute;left:50%;top:2px;width:2.5px;height:6px;margin-left:-1px;background:currentColor;border-radius:1px}
+  #note{display:none}
+  #streak{position:fixed;right:18px;bottom:max(14px,env(safe-area-inset-bottom));font-family:'Fraunces',Georgia,serif;font-weight:800;font-size:18px;color:var(--red);z-index:2}
   #turn{display:none}
   #kb{width:100%;max-width:900px}
   #kb .stagebox{position:relative;width:min(100%, calc((100vh - 290px) * 1.4));margin:0 auto}
@@ -82,9 +88,10 @@
   .stage > #kb svg{max-height:min(60vh,calc(100vh - 330px));width:auto;max-width:100%;margin:0 auto;overflow:visible}
 
   @media (orientation: landscape) and (max-height: 520px){
-    .top{padding-top:4px;padding-bottom:0} .strip{font-size:19px;min-height:28px}
+    .top{padding-top:max(6px,env(safe-area-inset-top));padding-bottom:0} .duet{font-size:19px}
+    .strip{font-size:18px;min-height:34px;padding-top:2px} .strip .bar{padding:3px 11px 5px}
     .stage{flex-direction:row;gap:14px;padding-bottom:6px}
-    .lead{flex:0 0 32%} #chord{font-size:66px} #note{font-size:18px} #bar{font-size:16px}
+    .lead{flex:0 0 30%} #chord{font-size:min(88px,22vh)} #bar{gap:5px;margin-top:8px;flex-wrap:wrap} #bar .sw{font-size:15px;padding:5px 9px 6px}
     #kb{flex:1;max-width:none} .stage > #kb svg{max-height:84vh} #kb .stagebox{width:min(100%, calc((100vh - 60px) * 1.4))}
   }
   /* settings drawer: paper sheet, grouped and collapsible; each group shows its current setting */
@@ -95,7 +102,7 @@
   body.menu .drawer{transform:none} body.menu .scrim{opacity:1;pointer-events:auto}
   @media (prefers-reduced-motion: reduce){.drawer,.scrim{transition:none}}
   .drawer-head{display:flex;align-items:flex-start;justify-content:space-between;padding:18px 20px 10px}
-  .drawer-head h2{font-family:var(--serif);font-weight:400;font-size:34px;line-height:1;margin:0}
+  .drawer-head h2{font-family:'Fraunces',Georgia,serif;font-variation-settings:"SOFT" 100,"opsz" 144;font-weight:900;font-size:36px;letter-spacing:-.03em;line-height:1;margin:0}
   #closeBtn{border-color:transparent;font-size:18px;padding:6px 10px}
   #status{font-size:12px;color:var(--dim);margin-top:6px}
   #status.err{color:var(--bad)}
@@ -104,17 +111,17 @@
   .grp:last-child{border-bottom:1.5px solid var(--ink)}
   .grp summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:1fr auto;align-items:baseline;gap:4px 12px;padding:14px 2px 13px;position:relative}
   .grp summary::-webkit-details-marker{display:none}
-  .grp summary::after{content:"+";font-family:var(--serif);font-size:26px;line-height:0;grid-column:2;grid-row:1;transition:transform .2s}
+  .grp summary::after{content:"+";font-family:var(--ui);font-weight:800;font-size:24px;line-height:0;grid-column:2;grid-row:1;transition:transform .2s}
   .grp[open] summary::after{transform:rotate(45deg)}
-  .grp .t{font-family:var(--serif);font-size:24px;line-height:1.1}
-  .grp .v{grid-column:1 / -1;font-size:13px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .grp .t{font-family:'Fraunces',Georgia,serif;font-variation-settings:"SOFT" 100,"opsz" 72;font-weight:800;font-size:23px;letter-spacing:-.015em;line-height:1.1}
+  .grp .v{grid-column:1 / -1;font-size:13px;font-weight:600;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .grp[open] .v{display:none}
   .grp .in{padding:2px 2px 18px}
   .stack{display:flex;flex-direction:column;gap:14px}
   .field{display:flex;flex-direction:column;gap:7px}
   .fl,.mini{font-size:13px;color:var(--char)}
   .chips{display:flex;flex-wrap:wrap;gap:6px}
-  .chip{padding:7px 13px;border-radius:999px;background:transparent;font-size:14px;cursor:pointer;border:1.5px solid var(--line);user-select:none;color:var(--char)}
+  .chip{padding:7px 13px;border-radius:999px;background:transparent;font-size:14px;font-weight:650;cursor:pointer;border:1.5px solid var(--line);user-select:none;color:var(--char)}
   .chip.on{border-color:var(--ink);background:var(--ink);color:var(--paper)}
   .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
   .toggle{display:flex;align-items:center;gap:10px;font-size:14px;color:var(--char)}
@@ -126,42 +133,13 @@
   button.small{padding:6px 12px;font-size:13px}
   .note{font-size:12.5px;line-height:1.5;color:var(--dim);margin:0;max-width:60ch}
   /* the painting: a still picture; only the keys change */
-  body.duo #kb{max-width:1000px;width:min(100%, calc((100vh - 300px) * 1.515))}
+  body.duo #kb{max-width:1000px;width:min(100%, calc((100vh - 290px) * 1.43))}
+  @media (orientation: portrait){ body.duo .stage{justify-content:space-evenly} body.duo #chord{font-size:min(30vw,168px)} }
+  /* Kalighat: buff mill paper, lamp black, vermilion */
+  body.skin-kalighat{--paper:#efe2c4;--ink:#15110e;--red:#cf3a22;--dim:#8a7f69;--line:#d4c39f;
+    background:radial-gradient(120% 90% at 50% 35%,#f4e9cf 0%,#efe2c4 55%,#e2d0a8 100%) fixed #efe2c4}
   body.duo #kb canvas{display:block}
-  body.duo #note{display:none}
-  body.duo #bar{color:var(--char)}
-  body.duo .strip .bar.now.you{color:#c8302b} body.duo .duet.you span.y{color:#c8302b} body.duo .duet span.y::after{background:#c8302b}
-  body.duo .strip .bar.now.mag{color:var(--ink)} body.duo .duet.mag span.m{color:var(--ink)} body.duo .duet span.m::after{background:var(--ink)}
-  body.duo .strip .bar.done{color:var(--dim)}
-  @media (orientation: landscape) and (max-height: 520px){ body.duo #kb{width:min(100%, calc((100vh - 70px) * 1.515))} }
-  /* the world: the keyboard is the floor of the screen; UI floats in the sky above the horizon */
-  #world{display:none}
-  body.world #world{display:block;position:fixed;inset:0;width:100vw;height:100vh;z-index:0}
-  body.world{background:#1c2740}
-  body.world::after{display:none}
-  body.world #kb{display:none}
-  body.world .stage{justify-content:flex-start;padding-top:2vh}
-  body.world .lead{pointer-events:none}
-  body.world #chord{color:#f2e8d3;text-shadow:0 2px 0 rgba(0,0,0,.25)}
-  body.world #bar{color:#f1b544}
-  body.world #note{color:#9ccaff}
-  body.world #streak{color:#f1b544}
-  body.world .duet span{color:#9aa6c4} body.world .duet i{color:#9aa6c4}
-  body.world .duet.you span.y{color:#ff6fae} body.world .duet.mag span.m{color:#7cc4ff}
-  body.world #play{background:#f2e8d3;color:#141b2d}
-  body.world #stop{color:#f2e8d3;border-color:#f2e8d3}
-  body.world #menuBtn{color:#f2e8d3}
-  body.world #load{color:#9aa6c4;border-color:#45537a}
-  body.world .strip{color:#7f8bab} body.world .strip .bar{border-color:#56638a}
-  body.world .strip .bar.now{color:#f2e8d3} body.world .strip .bar.now.you{color:#ff6fae} body.world .strip .bar.now.mag{color:#7cc4ff}
-  body.world .strip .bar.done{color:#f1b544}
-  body.world #note{display:none}
-  body.world #bar{text-shadow:0 1px 6px rgba(20,27,45,.9),0 0 2px rgba(20,27,45,.9)}
-  @media (orientation: landscape) and (max-height: 520px){
-    body.world .strip{justify-content:flex-start;padding-left:20px}
-    body.world .lead{position:fixed;left:24px;top:92px;align-items:flex-start;z-index:3}
-    body.world #chord{font-size:60px}
-  }
+  @media (orientation: landscape) and (max-height: 520px){ body.duo #kb{flex:0 1 auto;width:min(66vw, calc((100vh - 74px) * 1.43))} body.duo .lead{flex:1 1 0} #streak{left:max(18px,env(safe-area-inset-left));right:auto} }
   /* narrow phones: keep the top bar on one line */
   @media (max-width: 480px){
     .top{gap:6px;padding-left:12px;padding-right:8px} .duet{font-size:17px} .duet span{padding:2px 6px}
@@ -171,7 +149,6 @@
 </style>
 </head>
 <body>
-<canvas id="world" aria-hidden="true"></canvas>
 <header class="top">
   <div class="duet idle" id="duet" aria-live="polite"><span class="y">You</span><i>&amp;</i><span class="m">Magenta</span></div>
   <div class="spacer"></div>
@@ -262,7 +239,7 @@
         <label class="toggle"><input id="comp" type="checkbox" checked> App plays the chords in pause mode</label>
         <label class="toggle"><input id="local" type="checkbox"> Also sound notes on this device</label>
         <p class="note">Left hand below middle C plays the chords; right hand plays the melody. Drums come from this device's speaker.</p>
-        <p class="note">Drums: Jazz and Brush kits from the FluidR3 GM soundfont by Frank Wen (MIT). Type: Kalam (Indian Type Foundry) and Instrument Serif, both SIL OFL. Drawing: Rough.js (MIT). Melodies: Magenta ImprovRNN (Google, Apache 2.0).</p>
+        <p class="note">Drums: Jazz and Brush kits from the FluidR3 GM soundfont by Frank Wen (MIT). Type: Fraunces (Undercase Type, SIL OFL). Picture: after the Kalighat bazaar paintings of 19th-century Calcutta, painted in code. Melodies: Magenta ImprovRNN (Google, Apache 2.0).</p>
       </div>
     </details>
   </div>
@@ -271,6 +248,7 @@
 <script src="magentamusic.js"></script>
 <script src="rough.js"></script>
 <script src="duo.js"></script>
+<script src="skins/kalighat.js"></script>
 <!-- painted stage (p5.brush) is still in the lab: <script src="brush.js"></script><script src="stage.js"></script> -->
 <script src="seq.js"></script>
 <script>
@@ -280,6 +258,9 @@ const SARGAM = ['Sa','komal Re','Re','komal Ga','Ga','Ma','tivra Ma','Pa','komal
 const BLACK = new Set([1,3,6,8,10]);
 const SA = 3;
 const sar = pc => SARGAM[(pc - SA + 12) % 12];
+// sargam as chunky tokens, marked the Bhatkhande way: komal underlined, tivra with a tick above
+const sarHTML = pc => { const n = sar(pc); return n.startsWith('komal ') ? `<span class="sw k">${n.slice(6)}</span>` : n.startsWith('tivra ') ? `<span class="sw t">${n.slice(6)}</span>` : `<span class="sw">${n}</span>`; };
+function setTones(c){ const el = $('bar'), key = c ? [...c.pcs].join() : ''; if (el.dataset.k === key) return; el.dataset.k = key; el.innerHTML = c ? [...c.pcs].map(sarHTML).join('') : ''; }
 const $ = id => document.getElementById(id);
 
 // ---------- The tune: [bar, display name, Magenta name, shell voicing as MIDI notes] ----------
@@ -719,7 +700,7 @@ function tradeTick(){
         if ($('comp').checked) c.voicing.forEach(p => { noteOn(p, 50, c.beats * 60 / +$('tempo').value, CH.comp); compNow.add(p % 12); });
         curChord = c; curIdx = gridIdx[((step % grid.length) + grid.length) % grid.length];
       }
-      $('bar').textContent = [...c.pcs].map(sar).join(' · ');
+      setTones(c);
     }
     lastStep = k;
   }
@@ -730,13 +711,13 @@ function tradeTick(){
     const e = pending.shift();
     if (e.kind === 'on') { noteOn(e.p, 96, e.len * stepMs() / 1000); magSounding.add(e.p); curNote = e.p; spawnNote(e.p, 'mag'); }
     else if (e.kind === 'off') { noteOff(e.p); magSounding.delete(e.p); if (curNote === e.p) curNote = null; }
-    else if (e.kind === 'chord') { curChord = e.c; curIdx = e.i; compNow.clear(); $('bar').textContent = [...e.c.pcs].map(sar).join(' · '); }
+    else if (e.kind === 'chord') { curChord = e.c; curIdx = e.i; compNow.clear(); setTones(e.c); }
     else if (e.kind === 'con') { noteOn(e.p, 62, e.len * stepMs() / 1000, CH.comp); compSounding.add(e.p); compNow.add(e.p % 12); }
     else if (e.kind === 'coff') { noteOff(e.p, CH.comp); compSounding.delete(e.p); compNow.delete(e.p % 12); }
   }
   if (phase === 'answer' && !pending.length) { phase = 'listen'; if (endMode === 'all') resetToYou(); showTurn(); }   // answer finished: wait for you
   if (endMode === 'all' && (phase === 'listen' || phase === 'you') && cue !== 'off' && !chordComplete() && performance.now() - lastCueAt > beatMs() * 7.5) playCue(curChord);
-  if (endMode === 'all' && (phase === 'listen' || phase === 'you')) $('bar').textContent = [...curChord.pcs].map(sar).join(' · ');
+  if (endMode === 'all' && (phase === 'listen' || phase === 'you')) setTones(curChord);
   draw();
 }
 
@@ -1050,7 +1031,7 @@ function draw(){
   updatePad();
   const nm = curChord ? curChord.name : '—';
   if ($('chordName').dataset.n !== nm) { $('chordName').dataset.n = nm; $('chordName').innerHTML = curChord ? chordHTML(nm) : '—'; }
-  if (mode !== 'trade') $('bar').textContent = curChord ? [...curChord.pcs].map(sar).join(' · ') : '';
+  if (mode !== 'trade') setTones(curChord);
   $('note').textContent = curNote != null ? sar(curNote % 12) : '';
   renderStrip();
   if (window.Duo && Duo.ok) {
@@ -1314,8 +1295,7 @@ function worldSource(){
   return {leftU, rightU, pressL: magTurn && left.length > 0, pressR: magTurn && right.length > 0, color: css('--mel'),
           playing, still: reducedMotion, beat: beats - Math.floor(beats), bar: (beats % 4) / 4};
 }
-const sargamLabel = (pc, black) => black ? sar(pc).replace('komal ', 'k').replace('tivra ', 't') : sar(pc).replace('komal ', 'k ').replace('tivra ', 't ');
-if (window.Duo && Duo.init($('kb'), {label: sargamLabel})) document.body.classList.add('duo');
+if (window.Duo && Duo.init($('kb'), {label: sar, skin: 'kalighat'})) document.body.classList.add('duo');
 else if (window.Stage) Stage.init($('kb'), {
   colors: {you: css('--you'), mel: css('--mel'), magchord: css('--magchord')},
   label: (pc, black) => black ? sar(pc).replace('komal ', 'k').replace('tivra ', 't') : sar(pc).replace('komal ', 'k ').replace('tivra ', 't '),
