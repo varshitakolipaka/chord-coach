@@ -41,6 +41,15 @@
   .legend i{display:inline-block;width:14px;height:14px;border-radius:3px;border:2px solid transparent;margin-right:6px;vertical-align:-2px}
   @media(max-width:700px){.grid{grid-template-columns:1fr}#target{font-size:48px}}
 
+
+  /* ---------- iPad landscape and Mac: stage on the left (stays put), controls on the right ---------- */
+  @media (min-width: 1000px) and (min-height: 521px){
+    body{max-width:1400px}
+    .layout{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:14px;align-items:start}
+    .stage{grid-column:1;grid-row:1;position:sticky;top:12px;display:flex;flex-direction:column;gap:12px}
+    .stage .panel{margin:0}
+    .side{grid-column:2;grid-row:1}
+  }
   /* ---------- iPhone sideways: stage on the left, controls on the right ---------- */
   body{padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right))}
   @media (orientation: landscape) and (max-height: 520px){
@@ -104,7 +113,12 @@
 </div>
 
 <div class="panel">
-  <div class="label">The whole tune (tap any chord to jump there)</div>
+  <div class="label">What to practise</div>
+  <div id="seq"></div>
+</div>
+
+<div class="panel">
+  <div class="label" id="chartLabel">The whole tune (tap any chord to jump there)</div>
   <div id="chart"></div>
 </div>
 
@@ -121,6 +135,7 @@
 </div>
 </div>
 
+<script src="seq.js"></script>
 <script>
 // ---------- Note naming ----------
 const WEST = ['C','D♭','D','E♭','E','F','G♭','G','A♭','A','B♭','B'];
@@ -146,7 +161,7 @@ const TYPES = {
 };
 
 // ---------- The tune (16 bars) ----------
-const SONG = [
+const FULLSONG = [
   [1,'F','m7'],[1,'B♭','7'],
   [2,'E♭','maj7'],[2,'A♭','maj7'],
   [3,'D','ø'],[3,'G','7'],
@@ -171,6 +186,7 @@ const SONG = [
     full:new Set(t.full.map(i => (r+i)%12)),
     shell:t.shell.map(i => (r+i)%12)};
 });
+let SONG = FULLSONG;
 
 // ---------- Generic chord recogniser ----------
 function identify(pcs, bassPc){
@@ -428,6 +444,16 @@ const chk = (pcs, bass, want) => { const got = identify(new Set(pcs.map(pcOf)), 
 chk(['F','A♭','E♭'],'F','Fm7'); chk(['B♭','D','A♭'],'B♭','B♭7');
 chk(['E♭','G','D'],'E♭','E♭maj7'); chk(['G','B','F'],'G','G7');
 chk(['C','E♭','B♭'],'C','Cm7'); chk(['D','F','A♭','C'],'D','Dø');
+
+// ---------- Whole tune, or your own sequence ----------
+const byName = new Map(FULLSONG.filter(c => !c.name.includes('/')).map(c => [c.name, c]));
+function applySeq(pick){
+  SONG = pick ? pick.names.map((n, i) => ({...byName.get(n), bar: i + 1})) : FULLSONG;
+  $('chartLabel').textContent = pick ? 'Your sequence, on repeat (tap any chord to jump there)' : 'The whole tune (tap any chord to jump there)';
+  doneSet.clear(); jump(0);
+}
+const seqr = Sequencer({el: $('seq'), names: [...byName.keys()], storageKey: 'coach-seq', onChange: applySeq});
+applySeq(seqr.get());
 
 render();
 </script>

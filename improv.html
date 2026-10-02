@@ -37,6 +37,15 @@
   .legend i{display:inline-block;width:14px;height:14px;border-radius:3px;margin-right:6px;vertical-align:-2px}
 
   .layout{display:flex;flex-direction:column} .side{order:-1}
+
+  /* ---------- iPad landscape and Mac: stage on the left (stays put), controls on the right ---------- */
+  @media (min-width: 1000px) and (min-height: 521px){
+    body{max-width:1400px}
+    .layout{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:14px;align-items:start}
+    .stage{grid-column:1;grid-row:1;position:sticky;top:12px;display:flex;flex-direction:column;gap:12px}
+    .stage .panel{margin:0}
+    .side{grid-column:2;grid-row:1}
+  }
   /* ---------- iPhone sideways: stage on the left, controls on the right ---------- */
   body{padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right))}
   @media (orientation: landscape) and (max-height: 520px){
@@ -101,7 +110,7 @@
     <div class="chip" data-s="tones">Chord tones only</div>
   </div>
   <div class="label">What to improvise over</div>
-  <div class="chips" id="scope"></div>
+  <div id="seq"></div>
 </div>
 
 <div class="panel ctl">
@@ -129,6 +138,7 @@
 </div>
 
 <script src="magentamusic.js"></script>
+<script src="seq.js"></script>
 <script>
 // ---------- Names ----------
 const WEST = ['C','D♭','D','E♭','E','F','G♭','G','A♭','A','B♭','B'];
@@ -163,19 +173,15 @@ const CHORDS = TUNE.map(([bar, root, q, bass]) => {
           scale: new Set(SCALE[q].map(i => (r + i) % 12))};
 });
 
-// ---------- Scope chips: whole tune, or loop one chord ----------
-const uniq = [...new Map(CHORDS.map(c => [c.name, c])).values()].filter(c => !c.name.includes('/'));
-let scope = 'tune';
-function renderScope(){
-  const items = [['tune','Whole tune'], ...uniq.map(c => [c.name, 'Loop ' + c.name])];
-  $('scope').innerHTML = items.map(([k, l]) => `<div class="chip ${k===scope?'on':''}" data-k="${k}">${l}</div>`).join('');
-  document.querySelectorAll('#scope .chip').forEach(el => el.onclick = () => { scope = el.dataset.k; renderScope(); if (playing) restart(); });
-}
-renderScope();
+// ---------- What to improvise over: whole tune, or your own sequence of chords ----------
+const byName = new Map(CHORDS.filter(c => !c.name.includes('/')).map(c => [c.name, c]));
+const where = c => c.where || ('bar ' + c.bar);
+const seqr = Sequencer({el: $('seq'), names: [...byName.keys()], storageKey: 'improv-seq', showLength: true,
+                        onChange: () => { if (playing) restart(); }});
 function section(){                // the chords for one pass
-  if (scope === 'tune') return CHORDS;
-  const c = uniq.find(x => x.name === scope);
-  return Array(4).fill(0).map(() => ({...c, beats: 4}));   // 4 bars of one chord
+  const pick = seqr.get();
+  if (!pick) return CHORDS;
+  return pick.names.map((n, i) => ({...byName.get(n), beats: pick.beats, where: 'chord ' + (i + 1) + ' of ' + pick.names.length}));
 }
 
 // ---------- MIDI out (to the Casio), plus a small built-in synth ----------
@@ -339,7 +345,7 @@ document.querySelectorAll('#mode .chip').forEach(el => el.onclick = () => {
 let youNow = new Set(), phrase = [], lastOffAt = 0;
 let phase = 'listen';              // listen → you → think → answer → listen
 let token = 0, magSounding = new Set();
-let grid = [], t0 = 0, lastStep = -1, pending = [];
+let grid = [], gridStart = [], t0 = 0, lastStep = -1, pending = [];
 
 const stepPos = () => (performance.now() - t0) / stepMs();     // fractional step on the chord clock
 const beatMs = () => 60000 / +$('tempo').value;
@@ -426,12 +432,12 @@ function tradeTick(){
   if (k > lastStep) {
     for (let step = lastStep + 1; step <= k; step++) {
       const c = chordAt(step), prevC = step > 0 ? chordAt(step - 1) : null;
-      if (step === 0 || c !== prevC) {
+      if (step === 0 || gridStart[((step % grid.length) + grid.length) % grid.length]) {
         if (prevC) prevC.voicing.forEach(noteOff);
         if ($('comp').checked) c.voicing.forEach(p => noteOn(p, 50, c.beats * 60 / +$('tempo').value));
         curChord = c;
       }
-      $('bar').textContent = 'bar ' + c.bar + ' · chord tones: ' + [...c.pcs].map(sar).join(', ');
+      $('bar').textContent = where(c) + ' · chord tones: ' + [...c.pcs].map(sar).join(', ');
     }
     lastStep = k;
   }
@@ -448,7 +454,7 @@ function tradeTick(){
 }
 
 function startTrade(){
-  grid = []; section().forEach(c => { for (let i = 0; i < c.beats * SPQ; i++) grid.push(c); });
+  grid = []; gridStart = []; section().forEach(c => { for (let i = 0; i < c.beats * SPQ; i++) { grid.push(c); gridStart.push(i === 0); } });
   t0 = performance.now() + 300; lastStep = -1; pending = []; phrase = []; phase = 'listen'; token++;
   showTurn();
   timer = setInterval(() => { if (performance.now() >= t0) tradeTick(); }, 8);
@@ -478,7 +484,7 @@ $('temp').oninput = () => $('tempV').textContent = (+$('temp').value).toFixed(1)
 // ---------- Display: fixed one octave, Sa to Sa ----------
 function draw(){
   $('chord').textContent = curChord ? curChord.name : '—';
-  if (mode !== 'trade') $('bar').textContent = curChord ? 'bar ' + curChord.bar + ' · chord tones: ' + [...curChord.pcs].map(sar).join(', ') : '';
+  if (mode !== 'trade') $('bar').textContent = curChord ? where(curChord) + ' · chord tones: ' + [...curChord.pcs].map(sar).join(', ') : '';
   $('note').textContent = curNote != null ? '♪ ' + sar(curNote % 12) + '  (' + WEST[curNote % 12] + ')' : '';
   const W = 46, H = 170, BW = 28, BH = 104, PAD = BW / 2 + 2;
   let whites = '', blacks = '', wi = 0;
