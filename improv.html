@@ -179,6 +179,7 @@
       <label class="toggle"><input id="comp" type="checkbox" checked> App plays the chords (pause mode)</label>
       <label class="toggle"><input id="local" type="checkbox"> Also play on this device</label>
       <div class="mini" style="margin:2px 0 0">Left hand below middle C = chords. Right hand = melody. Drums play from this device.</div>
+      <div class="mini" style="margin:2px 0 0">Drum samples: <a href="https://github.com/SanicBoom/avl-drumkits">AVL Drumkits</a> by Glen MacArthur, <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC-BY-SA 4.0</a>.</div>
     </section>
   </div>
 </aside>
@@ -710,8 +711,33 @@ function midiAt(ms, bytes){
   const go = () => outs.forEach(o => { try { o.send(bytes); } catch (e) {} });
   const d = ms - performance.now(); d <= 1 ? go() : setTimeout(go, d);
 }
+// ---- real drum samples: AVL Drumkits by Glen MacArthur (bandshed.net), CC-BY-SA 4.0 — trimmed and converted to mp3 ----
+const KIT = {ride: null, bell: null, hat: null, chat: null, kick: null, rim: null, snare: null};
+const KIT_GAIN = {ride: 0.75, bell: 0.5, hat: 0.7, chat: 0.35, kick: 0.5, rim: 0.55, snare: 0.4};
+let kitLoading = null;
+function loadKit(){
+  if (kitLoading || !actx) return kitLoading;
+  kitLoading = Promise.all(Object.keys(KIT).map(async name => {
+    KIT[name] = await Promise.all([1, 2, 3, 4, 5].map(async i => {
+      const buf = await (await fetch('drums/' + name + '-' + i + '.mp3')).arrayBuffer();
+      return await new Promise((ok, no) => actx.decodeAudioData(buf, ok, no));
+    }));
+  })).catch(e => { console.error('drum samples', e); });
+  return kitLoading;
+}
+function playSample(name, t, v){
+  const layers = KIT[name]; if (!layers) return false;
+  const idx = Math.max(0, Math.min(4, Math.round(v * 4 + (Math.random() - 0.5))));   // pick a recorded strength
+  const src = actx.createBufferSource(), g = actx.createGain();
+  src.buffer = layers[idx]; g.gain.value = KIT_GAIN[name] * (0.75 + 0.25 * v);
+  src.connect(g).connect(bandBus); src.start(t);
+  return true;
+}
+const SAMPLE_OF = {ride: 'ride', hat: 'hat', kick: 'kick', rim: 'rim', brush: 'snare', chat: 'chat', bell: 'bell', snare: 'snare'};
 function drumHit(ms, inst, v){              // the CT-S1 has no drum kit, so drums always play on this device
-  if (actx) DRUM[inst](Math.max(actx.currentTime, toAudio(ms)), v);
+  if (!actx || !audioReady()) return;
+  const t = Math.max(actx.currentTime, toAudio(ms + (Math.random() - 0.5) * 8));   // a few ms of human looseness
+  if (!playSample(SAMPLE_OF[inst] || inst, t, v)) DRUM[inst] && DRUM[inst](t, v);
 }
 function bassHit(ms, midi, durMs){
   if (toKeys()) { midiAt(ms, [0x90 | CH.bass, midi, 120]); midiAt(ms + durMs * 0.92, [0x80 | CH.bass, midi, 0]); return; }
@@ -731,12 +757,15 @@ $('bandTest').onclick = () => {
 
 // ---- drum patterns: [beat position in the bar on the straight grid, instrument, loudness] ----
 const PATTERNS = {
-  swing:  [[0,'ride',1],[1,'ride',1],[1.5,'ride',.7],[2,'ride',1],[3,'ride',1],[3.5,'ride',.7],
-           [1,'hat',1],[3,'hat',1],[0,'kick',.25],[1,'kick',.2],[2,'kick',.25],[3,'kick',.2]],
-  ballad: [[0,'brush',1],[1,'brush',.8],[2,'brush',1],[3,'brush',.8],[1,'hat',.7],[3,'hat',.7],[0,'kick',.3],[2,'kick',.2]],
-  bossa:  [[0,'kick',.6],[1.5,'kick',.45],[2,'kick',.6],[3.5,'kick',.45],
-           [0,'hat',.6],[0.5,'hat',.4],[1,'hat',.6],[1.5,'hat',.4],[2,'hat',.6],[2.5,'hat',.4],[3,'hat',.6],[3.5,'hat',.4],
-           [0,'rim',1],[1.5,'rim',1],[3,'rim',1]],
+  // swing: ride "ding, ding-a ding", hi-hat foot on 2 and 4, feathered kick
+  swing:  [[0,'ride',.75],[1,'ride',.7],[1.5,'ride',.4],[2,'ride',.75],[3,'ride',.7],[3.5,'ride',.4],
+           [1,'hat',.7],[3,'hat',.7],[0,'kick',.15],[2,'kick',.12]],
+  // ballad: soft ride on the beat, hat on 2 and 4, a gentle kick on 1
+  ballad: [[0,'ride',.35],[1,'ride',.3],[2,'ride',.35],[3,'ride',.3],[3.5,'ride',.15],[1,'hat',.5],[3,'hat',.5],[0,'kick',.12]],
+  // bossa: side-stick clave, closed hats in 8ths, kick on 1 and 3 with pickups
+  bossa:  [[0,'kick',.45],[1.5,'kick',.3],[2,'kick',.45],[3.5,'kick',.3],
+           [0,'chat',.5],[0.5,'chat',.3],[1,'chat',.5],[1.5,'chat',.3],[2,'chat',.5],[2.5,'chat',.3],[3,'chat',.5],[3.5,'chat',.3],
+           [0,'rim',.7],[1.5,'rim',.6],[3,'rim',.7]],
 };
 
 // ---- walking bass: root on the downbeat, chord tones in between, a half-step into the next chord ----
@@ -808,13 +837,16 @@ $('bandVol').oninput = () => { if (bandBus) bandBus.gain.value = +$('bandVol').v
 $('bassVol').oninput = () => sendTones();
 
 renderTones();
+try { actx = new (window.AudioContext || window.webkitAudioContext)(); loadKit(); } catch (e) {}
 // settings drawer
 const menu = open => document.body.classList.toggle('menu', open);
 $('menuBtn').onclick = () => menu(true); $('closeBtn').onclick = () => menu(false); $('scrim').onclick = () => menu(false);
 document.addEventListener('keydown', e => { if (e.key === 'Escape') menu(false); });
 $('play').onclick = async () => {
   sendTones(); menu(false); document.body.classList.add('playing');
-  if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); await actx.resume(); } catch(e){} }
+  if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e){} }
+  try { await actx.resume(); } catch (e) {}
+  loadKit();
   playing = true; $('play').disabled = true; $('stop').disabled = false;
   if (mode === 'trade') { status('Taking turns. You start.'); startTrade(); return; }
   status('Magenta is improvising…');
