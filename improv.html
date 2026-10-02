@@ -188,7 +188,7 @@
       <label class="toggle"><input id="comp" type="checkbox" checked> App plays the chords (pause mode)</label>
       <label class="toggle"><input id="local" type="checkbox"> Also play on this device</label>
       <div class="mini" style="margin:2px 0 0">Left hand below middle C = chords. Right hand = melody. Drums play from this device.</div>
-      <div class="mini" style="margin:2px 0 0">Drum samples: <a href="https://github.com/SanicBoom/avl-drumkits">AVL Drumkits</a> by Glen MacArthur, <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC-BY-SA 4.0</a>.</div>
+      <div class="mini" style="margin:2px 0 0">Drums: Jazz and Brush kits from the FluidR3 GM soundfont by Frank Wen (MIT licence).</div>
     </section>
   </div>
 </aside>
@@ -743,13 +743,15 @@ function midiAt(ms, bytes){
   const go = () => outs.forEach(o => { try { o.send(bytes); } catch (e) {} });
   const d = ms - performance.now(); d <= 1 ? go() : setTimeout(go, d);
 }
-// ---- real drum samples: AVL Drumkits by Glen MacArthur (bandshed.net), CC-BY-SA 4.0 — trimmed and converted to mp3 ----
-const KIT = {ride: null, bell: null, hat: null, chat: null, kick: null, rim: null, snare: null};
-const KIT_GAIN = {ride: 0.75, bell: 0.5, hat: 0.7, chat: 0.35, kick: 0.5, rim: 0.55, snare: 0.4};
+// ---- real drum samples: the Jazz and Brush kits from the FluidR3 GM soundfont (Frank Wen, MIT licence) ----
+const KIT_NAMES = ['jazz-ride','jazz-bell','jazz-hat','jazz-chat','jazz-kick','jazz-rim','jazz-snare',
+                   'brush-ride','brush-hat','brush-kick','brush-tap','brush-slap','brush-swirl','brush-rim'];
+const KIT = Object.fromEntries(KIT_NAMES.map(n => [n, null]));
+const KIT_GAIN = {ride: 0.55, bell: 0.4, hat: 0.5, chat: 0.3, kick: 0.6, rim: 0.5, snare: 0.4, tap: 0.55, slap: 0.5, swirl: 0.5};
 let kitLoading = null;
 function loadKit(){
   if (kitLoading || !actx) return kitLoading;
-  kitLoading = Promise.all(Object.keys(KIT).map(async name => {
+  kitLoading = Promise.all(KIT_NAMES.map(async name => {
     KIT[name] = await Promise.all([1, 2, 3, 4, 5].map(async i => {
       const buf = await (await fetch('drums/' + name + '-' + i + '.mp3')).arrayBuffer();
       return await new Promise((ok, no) => actx.decodeAudioData(buf, ok, no));
@@ -761,15 +763,14 @@ function playSample(name, t, v){
   const layers = KIT[name]; if (!layers) return false;
   const idx = Math.max(0, Math.min(4, Math.round(v * 4 + (Math.random() - 0.5))));   // pick a recorded strength
   const src = actx.createBufferSource(), g = actx.createGain();
-  src.buffer = layers[idx]; g.gain.value = KIT_GAIN[name] * (0.75 + 0.25 * v);
+  src.buffer = layers[idx]; g.gain.value = (KIT_GAIN[name.split('-')[1]] || 0.5) * (0.75 + 0.25 * v);
   src.connect(g).connect(bandBus); src.start(t);
   return true;
 }
-const SAMPLE_OF = {ride: 'ride', hat: 'hat', kick: 'kick', rim: 'rim', brush: 'snare', chat: 'chat', bell: 'bell', snare: 'snare'};
 function drumHit(ms, inst, v){              // the CT-S1 has no drum kit, so drums always play on this device
   if (!actx || !audioReady()) return;
   const t = Math.max(actx.currentTime, toAudio(ms + (Math.random() - 0.5) * 8));   // a few ms of human looseness
-  if (!playSample(SAMPLE_OF[inst] || inst, t, v)) DRUM[inst] && DRUM[inst](t, v);
+  if (!playSample(inst, t, v)) { const k = inst.split('-')[1]; DRUM[k] && DRUM[k](t, v); }
 }
 function bassHit(ms, midi, durMs){
   if (toKeys()) { midiAt(ms, [0x90 | CH.bass, midi, 120]); midiAt(ms + durMs * 0.92, [0x80 | CH.bass, midi, 0]); return; }
@@ -789,15 +790,16 @@ $('bandTest').onclick = () => {
 
 // ---- drum patterns: [beat position in the bar on the straight grid, instrument, loudness] ----
 const PATTERNS = {
-  // swing: ride "ding, ding-a ding", hi-hat foot on 2 and 4, feathered kick
-  swing:  [[0,'ride',.75],[1,'ride',.7],[1.5,'ride',.4],[2,'ride',.75],[3,'ride',.7],[3.5,'ride',.4],
-           [1,'hat',.7],[3,'hat',.7],[0,'kick',.15],[2,'kick',.12]],
-  // ballad: soft ride on the beat, hat on 2 and 4, a gentle kick on 1
-  ballad: [[0,'ride',.35],[1,'ride',.3],[2,'ride',.35],[3,'ride',.3],[3.5,'ride',.15],[1,'hat',.5],[3,'hat',.5],[0,'kick',.12]],
-  // bossa: side-stick clave, closed hats in 8ths, kick on 1 and 3 with pickups
-  bossa:  [[0,'kick',.45],[1.5,'kick',.3],[2,'kick',.45],[3.5,'kick',.3],
-           [0,'chat',.5],[0.5,'chat',.3],[1,'chat',.5],[1.5,'chat',.3],[2,'chat',.5],[2.5,'chat',.3],[3,'chat',.5],[3.5,'chat',.3],
-           [0,'rim',.7],[1.5,'rim',.6],[3,'rim',.7]],
+  // swing (jazz kit): ride "ding, ding-a ding", hi-hat foot on 2 and 4, feathered kick
+  swing:  [[0,'jazz-ride',.7],[1,'jazz-ride',.65],[1.5,'jazz-ride',.4],[2,'jazz-ride',.7],[3,'jazz-ride',.65],[3.5,'jazz-ride',.4],
+           [1,'jazz-hat',.6],[3,'jazz-hat',.6],[0,'jazz-kick',.2],[2,'jazz-kick',.15]],
+  // ballad (brushes): a swirl on 1 and 3, a brush tap on 2 and 4, hi-hat foot, soft kick
+  ballad: [[0,'brush-swirl',.6],[2,'brush-swirl',.55],[1,'brush-tap',.55],[3,'brush-tap',.6],[3.5,'brush-tap',.25],
+           [1,'brush-hat',.4],[3,'brush-hat',.4],[0,'brush-kick',.25]],
+  // bossa (jazz kit): side-stick clave, closed hats in 8ths, kick on 1 and 3 with pickups
+  bossa:  [[0,'jazz-kick',.5],[1.5,'jazz-kick',.35],[2,'jazz-kick',.5],[3.5,'jazz-kick',.35],
+           [0,'jazz-chat',.5],[0.5,'jazz-chat',.3],[1,'jazz-chat',.5],[1.5,'jazz-chat',.3],[2,'jazz-chat',.5],[2.5,'jazz-chat',.3],[3,'jazz-chat',.5],[3.5,'jazz-chat',.3],
+           [0,'jazz-rim',.7],[1.5,'jazz-rim',.6],[3,'jazz-rim',.7]],
 };
 
 // ---- walking bass: root on the downbeat, chord tones in between, a half-step into the next chord ----

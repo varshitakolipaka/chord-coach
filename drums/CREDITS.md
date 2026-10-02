@@ -1,8 +1,15 @@
 # Drum samples
 
-AVL Drumkits by Glen MacArthur (bandshed.net), via https://github.com/SanicBoom/avl-drumkits
-License: CC-BY-SA 4.0 — https://creativecommons.org/licenses/by-sa/4.0/
+Rendered from the Jazz (bank 128, preset 32) and Brush (bank 128, preset 40) drum kits of the
+FluidR3 GM soundfont, Copyright © 2000-2002, 2008 Frank Wen, © 2008 Toby Smithe — MIT licence.
 
-Changes made: selected ride (Zildjian A 24"), ride bell, hi-hat pedal and closed (Sabian), kick (Ludwig 26"),
-side-stick and Porkpie snare; trimmed to 2.4 s with a fade-out, leading silence removed, converted to mono 96 kbps MP3.
-These sample files are shared under the same CC-BY-SA 4.0 license.
+Each hit was rendered at five velocities (35, 60, 85, 105, 127), normalised per instrument,
+trimmed to 2.2 s with a fade-out, and converted to mono 96 kbps MP3.
+
+MIT licence: Permission is hereby granted, free of charge, to any person obtaining a copy of this
+software and associated documentation files (the "Software"), to deal in the Software without
+restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute,
+sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished
+to do so, subject to the following conditions: The above copyright notice and this permission notice
+shall be included in all copies or substantial portions of the Software. THE SOFTWARE IS PROVIDED
+"AS IS", WITHOUT WARRANTY OF ANY KIND.
