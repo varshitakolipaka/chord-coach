@@ -166,7 +166,6 @@
       <div class="ctl">
         <label for="bandVol">Drums</label><input id="bandVol" type="range" min="0" max="1.5" step="0.05" value="0.8"><span></span>
         <label for="bassVol">Bass</label><input id="bassVol" type="range" min="0.3" max="1" step="0.05" value="1"><span></span>
-        <label for="sync">Drum sync</label><input id="sync" type="range" min="-100" max="300" step="10" value="60"><output id="syncV">60 ms</output>
       </div>
       <div class="row">
         <label class="toggle"><input id="bassOn" type="checkbox"> Walking bass</label>
@@ -491,14 +490,16 @@ function chordStruck(){
 let cue = 'bass', lastCueAt = 0, cueChord = null;
 function playCue(c){
   if (!c || cue === 'off' || !playing) return;
-  cueChord = c; lastCueAt = performance.now();
+  // land the clue on the next beat of the groove, never in between
+  const beat = Math.ceil(unwarp((performance.now() - t0) / beatMs()) + 0.05), at = t0 + warp(beat) * beatMs();
+  cueChord = c; lastCueAt = at;
   const durMs = beatMs() * 2;
-  if (cue === 'bass' || cue === 'both') {
+  if ((cue === 'bass' || cue === 'both') && !$('bassOn').checked) {   // the bass line already plays the root
     const root = 36 + ((c.root - 36) % 12 + 12) % 12;          // C2–B2: a low, bassy root
-    bassHit(performance.now(), root, durMs);
-    bassHit(performance.now(), root + 12, durMs * 0.9);          // its octave, for a fuller bass
+    bassHit(at, root, durMs);
+    bassHit(at, root + 12, durMs * 0.9);                        // its octave, for a fuller bass
   }
-  if (cue === 'chord' || cue === 'both') c.voicing.forEach(p => { noteOn(p, 48, durMs / 1000, CH.comp); setTimeout(() => noteOff(p, CH.comp), durMs); });
+  if (cue === 'chord' || cue === 'both') c.voicing.forEach(p => { midiAt(at, [0x90 | CH.comp, p, 48]); midiAt(at + durMs, [0x80 | CH.comp, p, 0]); });
 }
 document.querySelectorAll('#cue .chip').forEach(el => el.onclick = () => {
   cue = el.dataset.c; document.querySelectorAll('#cue .chip').forEach(x => x.classList.toggle('on', x === el));
@@ -662,7 +663,7 @@ function tradeTick(){
     else if (e.kind === 'coff') { noteOff(e.p, CH.comp); compSounding.delete(e.p); compNow.delete(e.p % 12); }
   }
   if (phase === 'answer' && !pending.length) { phase = 'listen'; if (endMode === 'all') resetToYou(); showTurn(); }   // answer finished: wait for you
-  if (endMode === 'all' && (phase === 'listen' || phase === 'you') && cue !== 'off' && !chordComplete() && performance.now() - lastCueAt > beatMs() * 8) playCue(curChord);
+  if (endMode === 'all' && (phase === 'listen' || phase === 'you') && cue !== 'off' && !chordComplete() && performance.now() - lastCueAt > beatMs() * 7.5) playCue(curChord);
   if (endMode === 'all' && (phase === 'listen' || phase === 'you')) $('bar').textContent = (gi + 1) + ' / ' + seqList.length + '  ·  ' + [...curChord.pcs].map(sar).join(' · ');
   draw();
 }
@@ -838,11 +839,9 @@ function startBand(t0ms){
   bandTimer = setInterval(bandTick, 25); bandTick();
 }
 function stopBand(){ clearInterval(bandTimer); bandTimer = null; }
-// The speaker adds its own delay; MIDI to the Casio doesn't. Start device sounds early by that delay (plus your sync nudge).
-const speakerDelay = () => ((actx.outputLatency || 0) + (actx.baseLatency || 0)) * 1000 + +$('sync').value;
-const toAudio = ms => actx.currentTime + (ms - speakerDelay() - performance.now()) / 1000;
+const toAudio = ms => actx.currentTime + (ms - performance.now()) / 1000;
 function bandTick(){
-  const horizon = performance.now() + 150 + Math.max(0, speakerDelay());
+  const horizon = performance.now() + 150;
   while (bandT0 + warp(bandNext) * beatMs() < horizon) {
     const n = bandNext, beat = bandBeats[n % bandBeats.length], inBar = n % 4;
     // drums for this beat
@@ -877,7 +876,6 @@ document.querySelectorAll('#style .chip').forEach(el => el.onclick = () => {
 $('bandVol').oninput = () => { if (bandBus) bandBus.gain.value = +$('bandVol').value; };
 $('bassVol').oninput = () => sendTones();
 $('padVol').oninput = () => sendTones();
-$('sync').oninput = () => $('syncV').textContent = $('sync').value + ' ms';
 
 renderTones();
 try { actx = new (window.AudioContext || window.webkitAudioContext)(); loadKit(); } catch (e) {}
