@@ -5,180 +5,183 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Magenta Improviser</title>
 <style>
-  :root{--bg:#121214;--panel:#1d1d21;--text:#f2f0ea;--dim:#8e8b84;--accent:#f0b44c;--ok:#5fd38d;--mel:#6cb6ff;--bad:#e8664f;--white:#ecebe6;--black:#26262b;--want:#f7d58c;--you:#ff6fae;--magchord:#a9d2ff}
+  /* Stage-first layout: the practice view fills the screen; settings live in a drawer. */
+  :root{--bg:#0f0f12;--panel:#18181d;--panel2:#202027;--line:#2a2a32;--text:#f2f0ea;--dim:#8e8b84;
+        --accent:#f0b44c;--ok:#5fd38d;--bad:#e8664f;--mel:#6cb6ff;--you:#ff6fae;--magchord:#a9d2ff;
+        --want:#f7d58c;--white:#ecebe6;--black:#26262b}
   *{box-sizing:border-box}
-  body{margin:0 auto;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,sans-serif;padding:16px;max-width:900px}
-  h1{font-size:18px;font-weight:600;margin:0 0 4px}
-  a{color:var(--accent)}
-  .sub{color:var(--dim);font-size:14px;margin-bottom:14px}
-  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
-  button{background:var(--panel);color:var(--text);border:1px solid #333;border-radius:10px;padding:12px 16px;font-size:16px;cursor:pointer}
-  button.go{background:var(--accent);color:#1a1405;border:none;font-weight:700}
-  button:disabled{opacity:.45}
-  .panel{background:var(--panel);border-radius:14px;padding:16px;margin-bottom:12px}
-  .label{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin-bottom:6px}
-  #status{font-size:14px;color:var(--dim)}
-  #status.err{color:var(--bad)}
-  #chord{font-size:64px;font-weight:700;line-height:1}
-  #bar{font-size:14px;color:var(--dim);margin-top:4px}
-  #note{font-size:28px;color:var(--mel);margin-top:10px;min-height:34px;font-weight:600}
-  .ctl{display:grid;grid-template-columns:auto 1fr auto;gap:8px 12px;align-items:center}
-  .ctl output{font-variant-numeric:tabular-nums;color:var(--dim);min-width:4ch;text-align:right}
-  input[type=range]{width:100%}
-  .chips{display:flex;flex-wrap:wrap;gap:6px}
-  .chip{padding:8px 12px;border-radius:8px;background:#26262b;font-size:15px;cursor:pointer;border:2px solid transparent}
-  .chip.on{border-color:var(--accent);font-weight:700}
-  .toggle{display:flex;align-items:center;gap:8px;font-size:15px}
-  .toggle input{width:22px;height:22px}
-  svg{width:100%;max-width:640px;height:auto;display:block;margin:0 auto}
-  #chord.ting{animation:ting .6s ease-out}
-  @keyframes ting{0%{color:var(--ok);transform:scale(1.06)}100%{color:inherit;transform:none}}
-  @media (prefers-reduced-motion: reduce){#chord.ting{animation:none;color:var(--ok)}}
-  #turn{font-size:22px;font-weight:700;margin-bottom:8px;min-height:28px}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,sans-serif;
+       display:flex;flex-direction:column;
+       padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}
+  a{color:var(--accent);text-decoration:none}
+  button{font:inherit;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:999px;
+         padding:9px 16px;cursor:pointer}
+  button:disabled{opacity:.4}
+  button:focus-visible,.chip:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+  /* top bar */
+  .top{display:flex;align-items:center;gap:10px;padding:10px 16px;padding-top:max(10px,env(safe-area-inset-top))}
+  .brand{display:flex;flex-direction:column;line-height:1.1;min-width:0}
+  .brand b{font-size:15px;font-weight:650;letter-spacing:.01em}
+  .brand a{font-size:12px;color:var(--dim)}
+  .spacer{flex:1}
+  #play,#stop{background:var(--accent);color:#1a1405;border:none;font-weight:700;padding:10px 22px;font-size:16px}
+  #stop{display:none;background:var(--panel2);color:var(--text);border:1px solid var(--line)}
+  body.playing #play{display:none} body.playing #stop{display:inline-block}
+  #load{font-size:13px;padding:7px 12px;background:transparent;color:var(--dim)}
+  #load.ready{color:var(--ok);border-color:transparent}
+  #menuBtn{width:42px;height:42px;padding:0;font-size:18px;display:grid;place-items:center}
+
+  /* stage */
+  .stage{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;
+         padding:8px 16px 24px;min-height:0}
+  .now{text-align:center;display:flex;flex-direction:column;align-items:center;gap:4px}
+  #turn{font-size:17px;font-weight:650;min-height:22px}
   #turn.you{color:var(--you)} #turn.mag{color:var(--mel)}
-  .legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;font-size:14px;color:var(--dim)}
-  .legend i{display:inline-block;width:14px;height:14px;border-radius:3px;margin-right:6px;vertical-align:-2px}
+  #streak{font-size:13px;color:var(--accent);min-height:16px}
+  #chord{font-size:clamp(56px,13vw,124px);font-weight:750;line-height:1;letter-spacing:-.02em}
+  #chord.ting{animation:ting .6s ease-out}
+  @keyframes ting{0%{color:var(--ok);transform:scale(1.05)}100%{color:inherit;transform:none}}
+  @media (prefers-reduced-motion: reduce){#chord.ting{animation:none}}
+  #bar{font-size:13px;color:var(--dim);min-height:16px}
+  #note{font-size:22px;color:var(--mel);font-weight:600;min-height:28px}
+  #kb{width:100%;max-width:760px}
+  .stage > #kb svg{max-height:46vh;width:auto;max-width:100%;margin:0 auto}
+  svg{width:100%;height:auto;display:block}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin-top:10px;font-size:12px;color:var(--dim)}
+  .legend i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:-1px}
 
-  .layout{display:flex;flex-direction:column} .side{order:-1}
+  /* drawer */
+  .scrim{position:fixed;inset:0;background:rgba(0,0,0,.45);opacity:0;pointer-events:none;transition:opacity .2s;z-index:9}
+  .drawer{position:fixed;top:0;right:0;bottom:0;width:min(420px,92vw);background:var(--panel);border-left:1px solid var(--line);
+          transform:translateX(100%);transition:transform .25s ease;z-index:10;display:flex;flex-direction:column;
+          padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
+  body.menu .drawer{transform:none} body.menu .scrim{opacity:1;pointer-events:auto}
+  @media (prefers-reduced-motion: reduce){.drawer,.scrim{transition:none}}
+  .drawer-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px 6px}
+  .drawer-head b{font-size:15px}
+  .drawer-body{overflow-y:auto;-webkit-overflow-scrolling:touch;padding:4px 16px 28px;padding-right:max(16px,env(safe-area-inset-right))}
+  #status{font-size:12px;color:var(--dim);margin:0 0 6px}
+  #status.err{color:var(--bad)}
+  section{padding:14px 0;border-bottom:1px solid var(--line)}
+  section:last-child{border-bottom:none}
+  .label{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--dim);margin:0 0 8px}
+  .mini{font-size:12px;color:var(--dim);margin:10px 0 6px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chip{padding:7px 12px;border-radius:999px;background:var(--panel2);font-size:14px;cursor:pointer;border:1.5px solid transparent;user-select:none}
+  .chip.on{border-color:var(--accent);color:var(--text);font-weight:650}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .toggle{display:flex;align-items:center;gap:8px;font-size:14px}
+  .toggle input{width:18px;height:18px;accent-color:var(--accent)}
+  .ctl{display:grid;grid-template-columns:auto 1fr auto;gap:10px 12px;align-items:center}
+  .ctl label{font-size:13px;color:var(--dim)}
+  .ctl output{font-variant-numeric:tabular-nums;color:var(--dim);font-size:13px;min-width:4ch;text-align:right}
+  input[type=range]{width:100%;accent-color:var(--accent)}
+  .stack{display:flex;flex-direction:column;gap:10px}
 
-  /* ---------- iPad landscape and Mac: stage on the left (stays put), controls on the right ---------- */
-  @media (min-width: 1000px) and (min-height: 521px){
-    body{max-width:1400px}
-    .layout{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:14px;align-items:start}
-    .stage{grid-column:1;grid-row:1;position:sticky;top:12px;display:flex;flex-direction:column;gap:12px}
-    .stage .panel{margin:0}
-    .side{grid-column:2;grid-row:1}
-  }
-  /* ---------- iPhone sideways: stage on the left, controls on the right ---------- */
-  body{padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right))}
+  /* phone held sideways: chord on the left, keyboard on the right */
   @media (orientation: landscape) and (max-height: 520px){
-    body{max-width:none;padding-top:8px;padding-bottom:8px;height:100vh;overflow:hidden}
-    h1,.sub.top{display:none}
-    .layout{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:10px;height:calc(100vh - 16px)}
-    .stage{grid-column:1;grid-row:1;display:flex;flex-direction:column;gap:8px;min-height:0}
-    .side{grid-column:2;grid-row:1;overflow-y:auto;-webkit-overflow-scrolling:touch;min-height:0;padding-bottom:20px}
-    .panel{padding:10px 12px;margin-bottom:8px;border-radius:12px}
-    .stage .panel{margin:0}
-    .row{gap:6px;margin-bottom:8px}
-    button,select{padding:8px 10px;font-size:14px}
-    .chips{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px}
-    .chip{white-space:nowrap;padding:6px 10px;font-size:14px}
-    .legend{margin-top:4px;font-size:12px;gap:10px}
-    .stage svg{max-height:calc(100vh - 150px);width:auto;max-width:100%}
-    .stage .kbwrap{flex:1;min-height:0;display:flex;flex-direction:column;justify-content:center}
-  }
-  @media (orientation: landscape) and (max-height: 520px){
-    #chord{font-size:34px} #turn{font-size:16px;min-height:20px;margin-bottom:2px} #bar{font-size:12px} #note{font-size:18px;min-height:22px;margin-top:2px}
-    .ctl{gap:6px 8px}
+    .top{padding-top:6px;padding-bottom:4px}
+    .stage{flex-direction:row;gap:20px;padding-bottom:10px}
+    .now{flex:0 0 34%}
+    #chord{font-size:52px} #note{font-size:18px} #turn{font-size:14px}
+    #kb{flex:1;max-width:none} .stage svg{max-height:62vh;width:auto;max-width:100%;margin:0 auto}
   }
 </style>
 </head>
 <body>
-<h1>Magenta improviser · I Fall in Love Too Easily</h1>
-<div class="sub top">Magenta's ImprovRNN plays a solo line over the changes. Sa = E♭. <a href="./">← back to the chord coach</a></div>
-
-<div class="layout">
-<div class="stage">
-<div class="panel">
-  <div class="label">Now</div>
-  <div id="turn"></div>
-  <div id="streak" style="font-size:15px;color:var(--accent);min-height:18px"></div>
-  <div id="chord">—</div>
-  <div id="bar"></div>
-  <div id="note"></div>
-</div>
-
-<div class="panel kbwrap">
-  <div id="kb"></div>
-</div>
-
-</div>
-<div class="side">
-<div class="row">
-  <button id="load" class="go">Loading Magenta…</button>
+<header class="top">
+  <div class="brand"><b>Improv</b><a href="./">chord coach</a></div>
+  <div class="spacer"></div>
+  <button id="load" title="Magenta model">Loading…</button>
   <button id="play" disabled>▶ Play</button>
   <button id="stop" disabled>■ Stop</button>
-  <span id="status">Loading Magenta…</span>
-</div>
+  <button id="menuBtn" aria-label="Settings">⚙︎</button>
+</header>
 
-<div class="panel">
-  <div class="sub" style="margin:0 0 10px">Left hand below middle C plays the chord, right hand plays your phrase. Turn off "Play the chords too" to play the chords yourself.</div>
-  <div class="label">Mode</div>
-  <div class="chips" id="mode" style="margin-bottom:14px">
-    <div class="chip on" data-m="trade">🎹 Take turns (you play, Magenta answers)</div>
-    <div class="chip" data-m="solo">Magenta solos</div>
+<main class="stage">
+  <div class="now">
+    <div id="turn"></div>
+    <div id="chord">—</div>
+    <div id="bar"></div>
+    <div id="note"></div>
+    <div id="streak"></div>
   </div>
-  <div class="label">Your turn ends</div>
-  <div class="chips" id="endMode" style="margin-bottom:14px">
-    <div class="chip" data-e="pause">When you pause for a beat</div>
-    <div class="chip on" data-e="all">🎯 When you've played every chord, in order</div>
-  </div>
-  <div class="label">How close to the chord</div>
-  <div class="chips" id="stick" style="margin-bottom:14px">
-    <div class="chip" data-s="free">Free (Magenta's own taste)</div>
-    <div class="chip on" data-s="around">Around the chord</div>
-    <div class="chip" data-s="tones">Chord tones only</div>
-  </div>
-  <div class="label">What to improvise over</div>
-  <div id="seq"></div>
-</div>
+  <div id="kb"></div>
+</main>
 
-<div class="panel">
-  <div class="label">Band</div>
-  <div class="chips" id="style">
-    <div class="chip" data-st="none">No band</div>
-    <div class="chip on" data-st="swing">🥁 Swing</div>
-    <div class="chip" data-st="ballad">Ballad</div>
-    <div class="chip" data-st="bossa">Bossa nova</div>
-  </div>
-  <div class="ctl" style="margin-top:10px">
-    <label class="label" for="bandVol" style="margin:0">Drums volume</label>
-    <input id="bandVol" type="range" min="0" max="1.5" step="0.05" value="0.8">
-    <span></span>
-    <label class="label" for="bassVol" style="margin:0">Bass volume</label>
-    <input id="bassVol" type="range" min="0.3" max="1" step="0.05" value="1">
-    <span></span>
-  </div>
-  <div class="row" style="margin:10px 0 0">
-    <label class="toggle"><input id="bassOn" type="checkbox"> Walking bass</label>
-    <label class="toggle"><input id="bandOut" type="checkbox" checked> Bass on the keyboard</label>
-    <button id="bandTest">Test bass</button>
-  </div>
-  <div class="sub" style="margin:8px 0 0">Drums always come from this device's speaker (the Casio has no drum kit; on iPhone, turn the silent switch off). The bass plays on the Casio, or on this device if you untick it.</div>
-</div>
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-label="Settings">
+  <div class="drawer-head"><b>Settings</b><button id="closeBtn" aria-label="Close settings">✕</button></div>
+  <div class="drawer-body">
+    <div id="status">Loading…</div>
 
-<div class="panel">
-  <div class="label">Sounds on the Casio</div>
-  <div class="seq-sub" style="font-size:12px;color:var(--dim);margin:6px 0">Magenta's voice</div><div class="chips" id="tones-mel"></div>
-  <div class="seq-sub" style="font-size:12px;color:var(--dim);margin:10px 0 6px">Bass</div><div class="chips" id="tones-bass"></div>
-  <div class="seq-sub" style="font-size:12px;color:var(--dim);margin:10px 0 6px">Chords (when the app plays them)</div><div class="chips" id="tones-comp"></div>
-  <div class="sub" style="margin:8px 0 0">Your own playing keeps whatever tone the Casio is set to. Tap a sound to hear it.</div>
-</div>
+    <section>
+      <div class="label">Practise</div>
+      <div id="seq"></div>
+    </section>
 
-<div class="panel ctl">
-  <label class="label" for="tempo" style="margin:0">Tempo</label>
-  <input id="tempo" type="range" min="50" max="140" step="5" value="80">
-  <output id="tempoV">80</output>
-  <label class="label" for="minBars" style="margin:0">Answer at least</label>
-  <input id="minBars" type="range" min="1" max="4" step="1" value="1">
-  <output id="minV">1 bar</output>
-  <label class="label" for="maxBars" style="margin:0">Answer at most</label>
-  <input id="maxBars" type="range" min="1" max="4" step="1" value="2">
-  <output id="maxV">2 bars</output>
-  <label class="label" for="temp" style="margin:0">Adventure</label>
-  <input id="temp" type="range" min="0.5" max="1.6" step="0.1" value="1.0">
-  <output id="tempV">1.0</output>
-  <span></span>
-  <div class="row" style="margin:0">
-    <label class="toggle"><input id="comp" type="checkbox" checked> Play the chords too</label>
-    <label class="toggle"><input id="ting" type="checkbox" checked> Ting when you play the chord</label>
-    <label class="toggle"><input id="local" type="checkbox"> Also play through this device</label>
+    <section class="stack">
+      <div class="label" style="margin:0">Game</div>
+      <div class="chips" id="mode">
+        <div class="chip on" data-m="trade">Take turns</div>
+        <div class="chip" data-m="solo">Magenta solos</div>
+      </div>
+      <div class="mini" style="margin:4px 0 0">Your turn ends</div>
+      <div class="chips" id="endMode">
+        <div class="chip on" data-e="all">🎯 After every chord</div>
+        <div class="chip" data-e="pause">On a pause</div>
+      </div>
+      <div class="mini" style="margin:4px 0 0">Magenta's notes</div>
+      <div class="chips" id="stick">
+        <div class="chip" data-s="free">Free</div>
+        <div class="chip on" data-s="around">Around the chord</div>
+        <div class="chip" data-s="tones">Chord tones</div>
+      </div>
+    </section>
+
+    <section class="ctl">
+      <label for="tempo">Tempo</label><input id="tempo" type="range" min="50" max="140" step="5" value="80"><output id="tempoV">80</output>
+      <label for="temp">Adventure</label><input id="temp" type="range" min="0.5" max="1.6" step="0.1" value="1.0"><output id="tempV">1.0</output>
+      <label for="minBars">Answer min</label><input id="minBars" type="range" min="1" max="4" step="1" value="1"><output id="minV">1 bar</output>
+      <label for="maxBars">Answer max</label><input id="maxBars" type="range" min="1" max="4" step="1" value="2"><output id="maxV">2 bars</output>
+    </section>
+
+    <section class="stack">
+      <div class="label" style="margin:0">Band</div>
+      <div class="chips" id="style">
+        <div class="chip" data-st="none">Off</div>
+        <div class="chip on" data-st="swing">Swing</div>
+        <div class="chip" data-st="ballad">Ballad</div>
+        <div class="chip" data-st="bossa">Bossa</div>
+      </div>
+      <div class="ctl">
+        <label for="bandVol">Drums</label><input id="bandVol" type="range" min="0" max="1.5" step="0.05" value="0.8"><span></span>
+        <label for="bassVol">Bass</label><input id="bassVol" type="range" min="0.3" max="1" step="0.05" value="1"><span></span>
+      </div>
+      <div class="row">
+        <label class="toggle"><input id="bassOn" type="checkbox"> Walking bass</label>
+        <label class="toggle"><input id="bandOut" type="checkbox" checked> Bass on Casio</label>
+        <button id="bandTest">Test</button>
+      </div>
+    </section>
+
+    <section>
+      <div class="label">Casio sounds</div>
+      <div class="mini" style="margin-top:0">Magenta</div><div class="chips" id="tones-mel"></div>
+      <div class="mini">Chords</div><div class="chips" id="tones-comp"></div>
+      <div class="mini">Bass</div><div class="chips" id="tones-bass"></div>
+    </section>
+
+    <section class="stack">
+      <label class="toggle"><input id="ting" type="checkbox" checked> Ting on the right chord</label>
+      <label class="toggle"><input id="comp" type="checkbox" checked> App plays the chords (pause mode)</label>
+      <label class="toggle"><input id="local" type="checkbox"> Also play on this device</label>
+      <div class="mini" style="margin:2px 0 0">Left hand below middle C = chords. Right hand = melody. Drums play from this device.</div>
+    </section>
   </div>
-  <span></span>
-</div>
-
-</div>
-</div>
+</aside>
 
 <script src="magentamusic.js"></script>
 <script src="seq.js"></script>
@@ -295,7 +298,7 @@ const SPQ = 4;                           // 16th-note steps
 let rnn = null;
 async function loadModel(){
   if (rnn || $('load').disabled) return;
-  $('load').disabled = true; $('load').textContent = 'Loading Magenta…'; status('Loading Magenta (first time ~5 MB, then cached)…');
+  $('load').disabled = true; $('load').textContent = 'Loading…'; status('Loading Magenta (first time ~5 MB, then cached)…');
   try {
     const m = new mm.MusicRNN(CKPT);
     await m.initialize();
@@ -303,9 +306,9 @@ async function loadModel(){
     await m.continueSequence({notes: [{pitch: 65, quantizedStartStep: 0, quantizedEndStep: 2}], totalQuantizedSteps: 4,
                               quantizationInfo: {stepsPerQuarter: SPQ}}, 4, 1.0, Array(8).fill('Fm7'));
     rnn = m;
-    $('play').disabled = false; $('load').textContent = '✓ Magenta ready'; status();
+    $('play').disabled = false; $('load').textContent = '✓ Ready'; $('load').classList.add('ready'); status();
   } catch (e) {
-    $('load').disabled = false; $('load').textContent = 'Retry loading Magenta';
+    $('load').disabled = false; $('load').textContent = '↻ Retry';
     status('Could not load Magenta. Check the internet connection and tap Retry.', true);
     console.error(e);
   }
@@ -529,7 +532,7 @@ document.querySelectorAll('#endMode .chip').forEach(el => el.onclick = () => {
   endMode = el.dataset.e; streak = 0; showStreak(); if (playing) restart();
   document.querySelectorAll('#endMode .chip').forEach(x => x.classList.toggle('on', x === el));
 });
-function showStreak(){ $('streak').textContent = endMode === 'all' && streak ? '🎯 Landed ' + streak + (streak === 1 ? ' time' : ' times') : ''; }
+function showStreak(){ $('streak').textContent = endMode === 'all' && streak ? '🎯 ' + streak : ''; }
 
 function onIn(e){
   const [st, p, v] = e.data, cmd = st & 0xf0;
@@ -594,10 +597,10 @@ async function answer(){
 
 function showTurn(){
   const t = $('turn');
-  const m = {listen: [endMode === 'all' ? '🎧 Your turn: play the chords in order, with a phrase on top' : '🎧 Your turn: play a phrase whenever you like', 'you'],
-             you: [endMode === 'all' ? '🎹 Your turn: play each chord, in order' : '🎹 You’re playing… pause for a beat when you’re done', 'you'],
-             think: ['🤔 Magenta is thinking…', 'mag'],
-             answer: ['🤖 Magenta answers', 'mag']}[phase];
+  const m = {listen: ['Your turn', 'you'],
+             you: ['Your turn', 'you'],
+             think: ['Magenta…', 'mag'],
+             answer: ['Magenta', 'mag']}[phase];
   t.textContent = m[0]; t.className = m[1];
 }
 
@@ -612,7 +615,7 @@ function tradeTick(){
         if ($('comp').checked) c.voicing.forEach(p => { noteOn(p, 50, c.beats * 60 / +$('tempo').value, CH.comp); compNow.add(p % 12); });
         curChord = c;
       }
-      $('bar').textContent = where(c) + ' · chord tones: ' + [...c.pcs].map(sar).join(', ');
+      $('bar').textContent = where(c) + '  ·  ' + [...c.pcs].map(sar).join(' · ');
     }
     lastStep = k;
   }
@@ -623,12 +626,12 @@ function tradeTick(){
     const e = pending.shift();
     if (e.kind === 'on') { noteOn(e.p, 96, e.len * stepMs() / 1000); magSounding.add(e.p); curNote = e.p; }
     else if (e.kind === 'off') { noteOff(e.p); magSounding.delete(e.p); if (curNote === e.p) curNote = null; }
-    else if (e.kind === 'chord') { curChord = e.c; compNow.clear(); $('bar').textContent = 'Magenta · chord ' + (e.i + 1) + ' of ' + seqList.length; }
+    else if (e.kind === 'chord') { curChord = e.c; compNow.clear(); $('bar').textContent = (e.i + 1) + ' / ' + seqList.length + '  ·  ' + [...e.c.pcs].map(sar).join(' · '); }
     else if (e.kind === 'con') { noteOn(e.p, 62, e.len * stepMs() / 1000, CH.comp); compSounding.add(e.p); compNow.add(e.p % 12); }
     else if (e.kind === 'coff') { noteOff(e.p, CH.comp); compSounding.delete(e.p); compNow.delete(e.p % 12); }
   }
   if (phase === 'answer' && !pending.length) { phase = 'listen'; if (endMode === 'all') resetToYou(); showTurn(); }   // answer finished: wait for you
-  if (endMode === 'all' && (phase === 'listen' || phase === 'you')) $('bar').textContent = 'Your turn · chord ' + (gi + 1) + ' of ' + seqList.length + ' · chord tones: ' + [...curChord.pcs].map(sar).join(', ');
+  if (endMode === 'all' && (phase === 'listen' || phase === 'you')) $('bar').textContent = (gi + 1) + ' / ' + seqList.length + '  ·  ' + [...curChord.pcs].map(sar).join(' · ');
   draw();
 }
 
@@ -805,8 +808,12 @@ $('bandVol').oninput = () => { if (bandBus) bandBus.gain.value = +$('bandVol').v
 $('bassVol').oninput = () => sendTones();
 
 renderTones();
+// settings drawer
+const menu = open => document.body.classList.toggle('menu', open);
+$('menuBtn').onclick = () => menu(true); $('closeBtn').onclick = () => menu(false); $('scrim').onclick = () => menu(false);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') menu(false); });
 $('play').onclick = async () => {
-  sendTones();
+  sendTones(); menu(false); document.body.classList.add('playing');
   if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); await actx.resume(); } catch(e){} }
   playing = true; $('play').disabled = true; $('stop').disabled = false;
   if (mode === 'trade') { status('Taking turns. You start.'); startTrade(); return; }
@@ -815,7 +822,7 @@ $('play').onclick = async () => {
   startPass(performance.now() + 100);
 };
 function stop(){
-  stopBand();
+  stopBand(); document.body.classList.remove('playing');
   playing = false; clearInterval(timer); clearTimeout(nextPass); queue = [];
   token++; allOff(); curChord = null; curNote = null; pending = []; magSounding.clear(); youNow.clear(); chordHand.clear(); tingedAt = -1; compNow.clear(); compSounding.clear(); $('turn').textContent = ''; draw();
   $('play').disabled = !rnn; $('stop').disabled = true; status();
@@ -831,7 +838,7 @@ $('temp').oninput = () => $('tempV').textContent = (+$('temp').value).toFixed(1)
 // ---------- Display: fixed one octave, Sa to Sa ----------
 function draw(){
   $('chord').textContent = curChord ? curChord.name : '—';
-  if (mode !== 'trade') $('bar').textContent = curChord ? where(curChord) + ' · chord tones: ' + [...curChord.pcs].map(sar).join(', ') : '';
+  if (mode !== 'trade') $('bar').textContent = curChord ? where(curChord) + '  ·  ' + [...curChord.pcs].map(sar).join(' · ') : '';
   $('note').textContent = curNote != null ? '♪ ' + sar(curNote % 12) + '  (' + WEST[curNote % 12] + ')' : '';
   const W = 46, H = 170, BW = 28, BH = 104, PAD = BW / 2 + 2;
   let whites = '', blacks = '', wi = 0;
