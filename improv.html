@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Magenta Improviser</title>
+<style>
+  :root{--bg:#121214;--panel:#1d1d21;--text:#f2f0ea;--dim:#8e8b84;--accent:#f0b44c;--ok:#5fd38d;--mel:#6cb6ff;--bad:#e8664f;--white:#ecebe6;--black:#26262b;--want:#f7d58c}
+  *{box-sizing:border-box}
+  body{margin:0 auto;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,sans-serif;padding:16px;max-width:900px}
+  h1{font-size:18px;font-weight:600;margin:0 0 4px}
+  a{color:var(--accent)}
+  .sub{color:var(--dim);font-size:14px;margin-bottom:14px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+  button{background:var(--panel);color:var(--text);border:1px solid #333;border-radius:10px;padding:12px 16px;font-size:16px;cursor:pointer}
+  button.go{background:var(--accent);color:#1a1405;border:none;font-weight:700}
+  button:disabled{opacity:.45}
+  .panel{background:var(--panel);border-radius:14px;padding:16px;margin-bottom:12px}
+  .label{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin-bottom:6px}
+  #status{font-size:14px;color:var(--dim)}
+  #status.err{color:var(--bad)}
+  #chord{font-size:64px;font-weight:700;line-height:1}
+  #bar{font-size:14px;color:var(--dim);margin-top:4px}
+  #note{font-size:28px;color:var(--mel);margin-top:10px;min-height:34px;font-weight:600}
+  .ctl{display:grid;grid-template-columns:auto 1fr auto;gap:8px 12px;align-items:center}
+  .ctl output{font-variant-numeric:tabular-nums;color:var(--dim);min-width:4ch;text-align:right}
+  input[type=range]{width:100%}
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chip{padding:8px 12px;border-radius:8px;background:#26262b;font-size:15px;cursor:pointer;border:2px solid transparent}
+  .chip.on{border-color:var(--accent);font-weight:700}
+  .toggle{display:flex;align-items:center;gap:8px;font-size:15px}
+  .toggle input{width:22px;height:22px}
+  svg{width:100%;max-width:640px;height:auto;display:block;margin:0 auto}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;font-size:14px;color:var(--dim)}
+  .legend i{display:inline-block;width:14px;height:14px;border-radius:3px;margin-right:6px;vertical-align:-2px}
+</style>
+</head>
+<body>
+<h1>Magenta improviser · I Fall in Love Too Easily</h1>
+<div class="sub">Magenta's ImprovRNN plays a solo line over the changes. Sa = E♭. <a href="./">← back to the chord coach</a></div>
+
+<div class="row">
+  <button id="load" class="go">1 · Load Magenta</button>
+  <button id="play" disabled>2 · ▶ Play</button>
+  <button id="stop" disabled>■ Stop</button>
+  <span id="status">Model not loaded yet (about 5 MB, once).</span>
+</div>
+
+<div class="panel">
+  <div class="label">What to improvise over</div>
+  <div class="chips" id="scope"></div>
+</div>
+
+<div class="panel ctl">
+  <label class="label" for="tempo" style="margin:0">Tempo</label>
+  <input id="tempo" type="range" min="50" max="140" step="5" value="80">
+  <output id="tempoV">80</output>
+  <label class="label" for="temp" style="margin:0">Adventure</label>
+  <input id="temp" type="range" min="0.5" max="1.6" step="0.1" value="1.0">
+  <output id="tempV">1.0</output>
+  <span></span>
+  <div class="row" style="margin:0">
+    <label class="toggle"><input id="comp" type="checkbox" checked> Play the chords too</label>
+    <label class="toggle"><input id="local" type="checkbox"> Also play through this device</label>
+  </div>
+  <span></span>
+</div>
+
+<div class="panel">
+  <div class="label">Now</div>
+  <div id="chord">—</div>
+  <div id="bar"></div>
+  <div id="note"></div>
+</div>
+
+<div class="panel">
+  <div id="kb"></div>
+</div>
+
+<script src="magentamusic.js"></script>
+<script>
+// ---------- Names ----------
+const WEST = ['C','D♭','D','E♭','E','F','G♭','G','A♭','A','B♭','B'];
+const SARGAM = ['Sa','komal Re','Re','komal Ga','Ga','Ma','tivra Ma','Pa','komal Dha','Dha','komal Ni','Ni'];
+const BLACK = new Set([1,3,6,8,10]);
+const SA = 3;
+const sar = pc => SARGAM[(pc - SA + 12) % 12];
+const $ = id => document.getElementById(id);
+
+// ---------- The tune: [bar, display name, Magenta name, shell voicing as MIDI notes] ----------
+const SHELL = {maj7:[0,4,11], '7':[0,4,10], m7:[0,3,10], 'ø':[0,3,10], '6':[0,4,9]};
+const TUNE = [
+  [1,'F','m7'],[1,'B♭','7'],[2,'E♭','maj7'],[2,'A♭','maj7'],[3,'D','ø'],[3,'G','7'],
+  [4,'C','m7'],[4,'A','7'],[5,'D','ø'],[5,'G','7'],[6,'C','m7'],[6,'C','m7','B♭'],
+  [7,'A','ø'],[7,'D','7'],[8,'D','ø'],[8,'G','7'],[9,'A','ø'],[9,'D','7'],[10,'G','7'],
+  [11,'G','ø'],[11,'C','7'],[12,'F','m7'],[12,'C','7'],[13,'F','m7'],[14,'A♭','m7'],[14,'D♭','7'],
+  [15,'G','7'],[15,'C','7'],[16,'F','m7'],[16,'B♭','7'],[17,'E♭','6'],
+];
+const perBar = {}; TUNE.forEach(([b]) => perBar[b] = (perBar[b] || 0) + 1);
+const CHORDS = TUNE.map(([bar, root, q, bass]) => {
+  const r = WEST.indexOf(root);
+  const mm = root.replace('♭','b') + (q === 'ø' ? 'm7b5' : q);           // Magenta spelling
+  const low = 48 + ((r - 48) % 12 + 12) % 12;                            // root in C3..B3 range
+  return {bar, name: root + q + (bass ? '/' + bass : ''), mm, root: r,
+          beats: 4 / perBar[bar],
+          voicing: SHELL[q].map(i => low + i),
+          pcs: new Set(SHELL[q].map(i => (r + i) % 12))};
+});
+
+// ---------- Scope chips: whole tune, or loop one chord ----------
+const uniq = [...new Map(CHORDS.map(c => [c.name, c])).values()].filter(c => !c.name.includes('/'));
+let scope = 'tune';
+function renderScope(){
+  const items = [['tune','Whole tune'], ...uniq.map(c => [c.name, 'Loop ' + c.name])];
+  $('scope').innerHTML = items.map(([k, l]) => `<div class="chip ${k===scope?'on':''}" data-k="${k}">${l}</div>`).join('');
+  document.querySelectorAll('.chip').forEach(el => el.onclick = () => { scope = el.dataset.k; renderScope(); if (playing) restart(); });
+}
+renderScope();
+function section(){                // the chords for one pass
+  if (scope === 'tune') return CHORDS;
+  const c = uniq.find(x => x.name === scope);
+  return Array(4).fill(0).map(() => ({...c, beats: 4}));   // 4 bars of one chord
+}
+
+// ---------- MIDI out (to the Casio), plus a small built-in synth ----------
+let outs = [];
+if (navigator.requestMIDIAccess) {
+  navigator.requestMIDIAccess().then(a => {
+    const upd = () => { outs = [...a.outputs.values()]; status(); };
+    a.onstatechange = upd; upd(); setInterval(upd, 3000);
+  }).catch(() => status());
+}
+let actx = null;
+function synth(pitch, dur, vel){
+  if (!actx) return;
+  const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain();
+  o.type = 'triangle'; o.frequency.value = 440 * Math.pow(2, (pitch - 69) / 12);
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vel / 127 * 0.25, t + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.001, t + Math.max(0.15, dur));
+  o.connect(g).connect(actx.destination); o.start(t); o.stop(t + dur + 0.05);
+}
+function noteOn(p, v, dur){
+  outs.forEach(o => { try { o.send([0x90, p, v]); } catch(e){} });
+  if ($('local').checked || !outs.length) synth(p, dur, v);
+}
+function noteOff(p){ outs.forEach(o => { try { o.send([0x80, p, 0]); } catch(e){} }); }
+function allOff(){ outs.forEach(o => { try { o.send([0xB0, 123, 0]); } catch(e){} }); }
+
+function status(msg, err){
+  const el = $('status');
+  if (msg) { el.textContent = msg; el.className = err ? 'err' : ''; return; }
+  if (!rnn) return;
+  el.className = '';
+  el.textContent = outs.length ? 'Ready · sending to: ' + outs.map(o => o.name || 'MIDI').join(', ')
+                               : 'Ready · no keyboard found, playing through this device';
+}
+
+// ---------- Magenta ----------
+const CKPT = 'https://storage.googleapis.com/magentadata/js/checkpoints/music_rnn/chord_pitches_improv';
+const SPQ = 4;                           // 16th-note steps
+let rnn = null;
+$('load').onclick = async () => {
+  $('load').disabled = true; status('Downloading Magenta model…');
+  try {
+    rnn = new mm.MusicRNN(CKPT);
+    await rnn.initialize();
+    $('play').disabled = false; $('load').textContent = '✓ Magenta loaded'; status();
+  } catch (e) {
+    $('load').disabled = false;
+    status('Could not load the model. Check the internet connection and try again.', true);
+    console.error(e);
+  }
+};
+
+// Generate one pass of melody over the given chords, seeded by the last notes we played
+let lastNotes = [{pitch: 65, s: 0, e: 4}];  // start on F (Re)
+async function generate(chords){
+  const seedLen = Math.max(4, ...lastNotes.map(n => n.e));
+  const seed = {notes: lastNotes.map(n => ({pitch: n.pitch, quantizedStartStep: n.s, quantizedEndStep: n.e})),
+                totalQuantizedSteps: seedLen, quantizationInfo: {stepsPerQuarter: SPQ}};
+  const perStep = Array(seedLen).fill(chords[0].mm);      // chord for every step
+  chords.forEach(c => { for (let i = 0; i < c.beats * SPQ; i++) perStep.push(c.mm); });
+  const steps = perStep.length - seedLen;
+  const out = await rnn.continueSequence(seed, steps, +$('temp').value, perStep);
+  const notes = out.notes.map(n => ({pitch: n.pitch, s: n.quantizedStartStep, e: n.quantizedEndStep}));
+  // keep the last bar as the next seed, shifted to start at 0
+  const tail = notes.filter(n => n.s >= steps - 16);
+  const off = Math.max(0, steps - 16);
+  lastNotes = tail.length ? tail.map(n => ({pitch: n.pitch, s: n.s - off, e: n.e - off})) : [{pitch: 65, s: 0, e: 4}];
+  return notes;
+}
+
+// ---------- Player: schedules melody + chords against the clock ----------
+let playing = false, timer = null, queue = [], nextPass = null, passStart = 0, curChord = null, curNote = null;
+const stepMs = () => 60000 / +$('tempo').value / SPQ;
+
+function buildEvents(chords, notes, t0){
+  const ev = [], sm = stepMs();
+  let step = 0;
+  chords.forEach(c => {
+    const len = c.beats * SPQ;
+    ev.push({t: t0 + step * sm, kind: 'chord', c});
+    if ($('comp').checked) c.voicing.forEach(p => {
+      ev.push({t: t0 + step * sm, kind: 'on', p, v: 55, dur: len * sm / 1000});
+      ev.push({t: t0 + (step + len) * sm - 30, kind: 'off', p});
+    });
+    step += len;
+  });
+  notes.forEach(n => {
+    ev.push({t: t0 + n.s * sm, kind: 'on', p: n.pitch, v: 96, dur: (n.e - n.s) * sm / 1000, mel: true});
+    ev.push({t: t0 + n.e * sm - 10, kind: 'off', p: n.pitch, mel: true});
+  });
+  ev.end = t0 + step * sm;
+  return ev.sort((a, b) => a.t - b.t);
+}
+
+async function startPass(t0){
+  const chords = section();
+  const notes = await generate(chords);
+  if (!playing) return;
+  queue = queue.concat(buildEvents(chords, notes, Math.max(t0, performance.now() + 50)));
+  const end = queue.length ? Math.max(...queue.map(e => e.t)) + 30 : performance.now();
+  // generate the next pass early so there is no gap
+  nextPass = setTimeout(() => startPass(end), Math.max(0, end - performance.now() - 2500));
+}
+
+function tick(){
+  const now = performance.now();
+  while (queue.length && queue[0].t <= now) {
+    const e = queue.shift();
+    if (e.kind === 'chord') { curChord = e.c; draw(); }
+    else if (e.kind === 'on') { noteOn(e.p, e.v, e.dur); if (e.mel) { curNote = e.p; draw(); } }
+    else { noteOff(e.p); if (e.mel && curNote === e.p) { curNote = null; draw(); } }
+  }
+}
+
+$('play').onclick = async () => {
+  if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); await actx.resume(); } catch(e){} }
+  playing = true; $('play').disabled = true; $('stop').disabled = false;
+  status('Magenta is improvising…');
+  timer = setInterval(tick, 10);
+  startPass(performance.now() + 100);
+};
+function stop(){
+  playing = false; clearInterval(timer); clearTimeout(nextPass); queue = [];
+  allOff(); curChord = null; curNote = null; draw();
+  $('play').disabled = !rnn; $('stop').disabled = true; status();
+}
+$('stop').onclick = stop;
+function restart(){ stop(); $('play').click(); }
+$('tempo').oninput = () => $('tempoV').textContent = $('tempo').value;
+$('temp').oninput = () => $('tempV').textContent = (+$('temp').value).toFixed(1);
+
+// ---------- Display: fixed one octave, Sa to Sa ----------
+function draw(){
+  $('chord').textContent = curChord ? curChord.name : '—';
+  $('bar').textContent = curChord ? 'bar ' + curChord.bar + ' · chord tones: ' + [...curChord.pcs].map(sar).join(', ') : '';
+  $('note').textContent = curNote != null ? '♪ ' + sar(curNote % 12) + '  (' + WEST[curNote % 12] + ')' : '';
+  const W = 46, H = 170, BW = 28, BH = 104, PAD = BW / 2 + 2;
+  let whites = '', blacks = '', wi = 0;
+  for (let n = 63; n <= 75; n++) {
+    const pc = n % 12, mel = curNote != null && curNote % 12 === pc, ch = curChord && curChord.pcs.has(pc);
+    const fill = mel ? 'var(--mel)' : ch ? 'var(--want)' : (BLACK.has(pc) ? 'var(--black)' : 'var(--white)');
+    const txt = mel || ch ? '#111' : (BLACK.has(pc) ? '#ccc' : '#444');
+    const lbl = sar(pc).replace('komal ','k ').replace('tivra ','t ');
+    if (!BLACK.has(pc)) {
+      const x = PAD + wi * W;
+      whites += `<rect x="${x}" y="0" width="${W-3}" height="${H}" rx="5" fill="${fill}"/>` +
+                `<text x="${x+(W-3)/2}" y="${H-14}" font-size="12" font-weight="${mel||ch?700:500}" text-anchor="middle" fill="${txt}">${lbl}</text>`;
+      wi++;
+    } else {
+      const x = PAD + wi * W - BW / 2 - 1.5;
+      blacks += `<rect x="${x}" y="0" width="${BW}" height="${BH}" rx="4" fill="${fill}" stroke="#000"/>` +
+                `<text x="${x+BW/2}" y="${BH-12}" font-size="10" font-weight="700" text-anchor="middle" fill="${txt}">${lbl.replace(' ','')}</text>`;
+    }
+  }
+  $('kb').innerHTML = `<svg viewBox="0 0 ${PAD*2+wi*W} ${H}">${whites}${blacks}</svg>
+    <div class="legend"><span><i style="background:var(--want)"></i>chord tones</span><span><i style="background:var(--mel)"></i>Magenta's note right now</span></div>`;
+}
+draw();
+</script>
+</body>
+</html>
