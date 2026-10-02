@@ -54,6 +54,12 @@
     <div class="chip on" data-m="trade">🎹 Take turns (you play, Magenta answers)</div>
     <div class="chip" data-m="solo">Magenta solos</div>
   </div>
+  <div class="label">How close to the chord</div>
+  <div class="chips" id="stick" style="margin-bottom:14px">
+    <div class="chip" data-s="free">Free (Magenta's own taste)</div>
+    <div class="chip on" data-s="around">Around the chord</div>
+    <div class="chip" data-s="tones">Chord tones only</div>
+  </div>
   <div class="label">What to improvise over</div>
   <div class="chips" id="scope"></div>
 </div>
@@ -62,7 +68,10 @@
   <label class="label" for="tempo" style="margin:0">Tempo</label>
   <input id="tempo" type="range" min="50" max="140" step="5" value="80">
   <output id="tempoV">80</output>
-  <label class="label" for="maxBars" style="margin:0">Answer up to</label>
+  <label class="label" for="minBars" style="margin:0">Answer at least</label>
+  <input id="minBars" type="range" min="1" max="4" step="1" value="1">
+  <output id="minV">1 bar</output>
+  <label class="label" for="maxBars" style="margin:0">Answer at most</label>
   <input id="maxBars" type="range" min="1" max="4" step="1" value="2">
   <output id="maxV">2 bars</output>
   <label class="label" for="temp" style="margin:0">Adventure</label>
@@ -100,6 +109,9 @@ const $ = id => document.getElementById(id);
 
 // ---------- The tune: [bar, display name, Magenta name, shell voicing as MIDI notes] ----------
 const SHELL = {maj7:[0,4,11], '7':[0,4,10], m7:[0,3,10], 'ø':[0,3,10], '6':[0,4,9]};
+const FULL  = {maj7:[0,4,7,11], '7':[0,4,7,10], m7:[0,3,7,10], 'ø':[0,3,6,10], '6':[0,4,7,9]};
+// notes that sound fine passing through, per chord type (jazz scale for each)
+const SCALE = {maj7:[0,2,4,7,9,11], '7':[0,2,4,5,7,9,10], m7:[0,2,3,5,7,9,10], 'ø':[0,1,3,5,6,8,10], '6':[0,2,4,7,9]};
 const TUNE = [
   [1,'F','m7'],[1,'B♭','7'],[2,'E♭','maj7'],[2,'A♭','maj7'],[3,'D','ø'],[3,'G','7'],
   [4,'C','m7'],[4,'A','7'],[5,'D','ø'],[5,'G','7'],[6,'C','m7'],[6,'C','m7','B♭'],
@@ -115,7 +127,9 @@ const CHORDS = TUNE.map(([bar, root, q, bass]) => {
   return {bar, name: root + q + (bass ? '/' + bass : ''), mm, root: r,
           beats: 4 / perBar[bar],
           voicing: SHELL[q].map(i => low + i),
-          pcs: new Set(SHELL[q].map(i => (r + i) % 12))};
+          pcs: new Set(SHELL[q].map(i => (r + i) % 12)),
+          tones: new Set(FULL[q].map(i => (r + i) % 12)),
+          scale: new Set(SCALE[q].map(i => (r + i) % 12))};
 });
 
 // ---------- Scope chips: whole tune, or loop one chord ----------
@@ -124,7 +138,7 @@ let scope = 'tune';
 function renderScope(){
   const items = [['tune','Whole tune'], ...uniq.map(c => [c.name, 'Loop ' + c.name])];
   $('scope').innerHTML = items.map(([k, l]) => `<div class="chip ${k===scope?'on':''}" data-k="${k}">${l}</div>`).join('');
-  document.querySelectorAll('.chip').forEach(el => el.onclick = () => { scope = el.dataset.k; renderScope(); if (playing) restart(); });
+  document.querySelectorAll('#scope .chip').forEach(el => el.onclick = () => { scope = el.dataset.k; renderScope(); if (playing) restart(); });
 }
 renderScope();
 function section(){                // the chords for one pass
@@ -183,6 +197,34 @@ $('load').onclick = async () => {
   }
 };
 
+
+// ---------- Keeping Magenta's line around the chord ----------
+let stick = 'around';
+document.querySelectorAll('#stick .chip').forEach(el => el.onclick = () => {
+  stick = el.dataset.s; document.querySelectorAll('#stick .chip').forEach(x => x.classList.toggle('on', x === el));
+});
+function nearest(p, set){
+  for (let d = 0; d < 12; d++) { if (set.has((p - d + 120) % 12)) return p - d; if (set.has((p + d) % 12)) return p + d; }
+  return p;
+}
+function fold(p){ while (p < 58) p += 12; while (p > 84) p -= 12; return p; }   // keep the line B♭3–C6
+// notes: [{pitch,s,e}] with s relative; chordOf(s) gives the chord sounding at that step
+function shape(notes, chordOf){
+  return notes.map(n => {
+    let p = fold(n.pitch);
+    const c = chordOf(n.s), strong = n.s % SPQ === 0 || (n.e - n.s) >= SPQ;
+    if (stick === 'tones' || (stick === 'around' && strong)) p = nearest(p, c.tones);
+    else if (stick === 'around' && !c.scale.has(p % 12)) p = nearest(p, c.scale);
+    return {...n, pitch: p};
+  });
+}
+// how well an answer fills its time: enough notes, and it keeps going to near the end
+function fills(notes, len){
+  if (!notes.length) return 0;
+  const lastEnd = Math.max(...notes.map(n => n.e));
+  return Math.min(1, notes.length / Math.max(2, len / 6)) * Math.min(1, lastEnd / (len * 0.8));
+}
+
 // Generate one pass of melody over the given chords, seeded by the last notes we played
 let lastNotes = [{pitch: 65, s: 0, e: 4}];  // start on F (Re)
 async function generate(chords){
@@ -193,7 +235,9 @@ async function generate(chords){
   chords.forEach(c => { for (let i = 0; i < c.beats * SPQ; i++) perStep.push(c.mm); });
   const steps = perStep.length - seedLen;
   const out = await rnn.continueSequence(seed, steps, +$('temp').value, perStep);
-  const notes = out.notes.map(n => ({pitch: n.pitch, s: n.quantizedStartStep, e: n.quantizedEndStep}));
+  const flat = []; chords.forEach(c => { for (let i = 0; i < c.beats * SPQ; i++) flat.push(c); });
+  const notes = shape(out.notes.map(n => ({pitch: n.pitch, s: n.quantizedStartStep, e: n.quantizedEndStep})),
+                      st => flat[Math.min(flat.length - 1, st)]);
   // keep the last bar as the next seed, shifted to start at 0
   const tail = notes.filter(n => n.s >= steps - 16);
   const off = Math.max(0, steps - 16);
@@ -299,8 +343,8 @@ async function answer(){
   start = Math.max(start, ansStart - 64);                         // listen to at most the last 4 bars
   const L = ansStart - start;
   const yourLen = Math.ceil((Math.max(...phrase.map(n => n.off ?? now)) - start) / SPQ) * SPQ;
-  const maxLen = +$('maxBars').value * 16;
-  const ansLen = Math.max(8, Math.min(maxLen, yourLen));          // about as long as yours, within the limit
+  const minLen = +$('minBars').value * 16, maxLen = Math.max(minLen, +$('maxBars').value * 16);
+  const ansLen = Math.max(minLen, Math.min(maxLen, yourLen));     // about as long as yours, within your range
   const seed = {notes: phrase.filter(n => n.on >= start).map(n => {
       const s = Math.max(0, Math.min(L - 1, Math.round(n.on - start)));
       const e = Math.max(s + 1, Math.min(L, Math.round((n.off ?? now) - start)));
@@ -309,14 +353,21 @@ async function answer(){
   if (!seed.notes.length) { phase = 'listen'; showTurn(); return; }
   const prog = []; for (let k = start; k < ansStart + ansLen; k++) prog.push(chordAt(k).mm);
   try {
-    const out = await rnn.continueSequence(seed, ansLen, +$('temp').value, prog);
-    if (my !== token) return;                                      // you started playing again
-    const notes = out.notes.filter(n => n.quantizedStartStep < ansLen);
+    // ask up to 4 times and keep the answer that fills its time best (no lonely single notes)
+    let best = [], bestScore = -1;
+    for (let tries = 0; tries < 4 && bestScore < 0.85; tries++) {
+      const out = await rnn.continueSequence(seed, ansLen, +$('temp').value + tries * 0.15, prog);
+      if (my !== token) return;                                    // you started playing again
+      const cand = out.notes.filter(n => n.quantizedStartStep < ansLen)
+        .map(n => ({pitch: n.pitch, s: n.quantizedStartStep, e: Math.min(ansLen, n.quantizedEndStep)}));
+      const sc = fills(cand, ansLen);
+      if (sc > bestScore) { best = cand; bestScore = sc; }
+    }
+    const notes = shape(best, st => chordAt(ansStart + st));
     if (!notes.length) { phase = 'listen'; showTurn(); return; }
     notes.forEach(n => {
-      const end = Math.min(ansLen, n.quantizedEndStep);
-      pending.push({step: ansStart + n.quantizedStartStep, kind: 'on', p: n.pitch, len: end - n.quantizedStartStep});
-      pending.push({step: ansStart + end, kind: 'off', p: n.pitch});
+      pending.push({step: ansStart + n.s, kind: 'on', p: n.pitch, len: n.e - n.s});
+      pending.push({step: ansStart + n.e, kind: 'off', p: n.pitch});
     });
     pending.sort((x, y) => x.step - y.step || (x.kind === 'off' ? -1 : 1));
     phase = 'answer'; showTurn();
@@ -381,7 +432,9 @@ function stop(){
 $('stop').onclick = stop;
 function restart(){ stop(); $('play').click(); }
 $('tempo').oninput = () => $('tempoV').textContent = $('tempo').value;
-$('maxBars').oninput = () => $('maxV').textContent = $('maxBars').value + ($('maxBars').value === '1' ? ' bar' : ' bars');
+const bars = v => v + (v === '1' ? ' bar' : ' bars');
+$('minBars').oninput = () => { if (+$('minBars').value > +$('maxBars').value) $('maxBars').value = $('minBars').value; $('minV').textContent = bars($('minBars').value); $('maxV').textContent = bars($('maxBars').value); };
+$('maxBars').oninput = () => { if (+$('maxBars').value < +$('minBars').value) $('minBars').value = $('maxBars').value; $('minV').textContent = bars($('minBars').value); $('maxV').textContent = bars($('maxBars').value); };
 $('temp').oninput = () => $('tempV').textContent = (+$('temp').value).toFixed(1);
 
 // ---------- Display: fixed one octave, Sa to Sa ----------
