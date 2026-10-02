@@ -447,7 +447,7 @@ function tick(){
   while (queue.length && queue[0].t <= now) {
     const e = queue.shift();
     if (e.kind === 'chord') { curChord = e.c; curIdx = e.i; draw(); }
-    else if (e.kind === 'on') { noteOn(e.p, e.v, e.dur, e.mel ? CH.mel : CH.comp); if (e.mel) curNote = e.p; else compNow.add(e.p % 12); draw(); }
+    else if (e.kind === 'on') { noteOn(e.p, e.v, e.dur, e.mel ? CH.mel : CH.comp); if (e.mel) { curNote = e.p; spawnNote(e.p, 'mag'); } else compNow.add(e.p % 12); draw(); }
     else { noteOff(e.p, e.mel ? CH.mel : CH.comp); if (e.mel && curNote === e.p) curNote = null; if (!e.mel) compNow.delete(e.p % 12); draw(); }
   }
 }
@@ -604,7 +604,7 @@ function onIn(e){
   } else if (on) {
     if (phase === 'answer' || phase === 'think') { token++; silenceMagenta(); phrase = []; if (endMode === 'all') { phase = 'listen'; resetToYou(); } }  // you interrupt: Magenta yields
     if (phase !== 'you') { phrase = []; phase = 'you'; }
-    phrase.push({p, on: stepPos(), off: null}); youNow.add(p);
+    phrase.push({p, on: stepPos(), off: null}); youNow.add(p); spawnNote(p, 'you');
   } else {
     const n = [...phrase].reverse().find(x => x.p === p && x.off === null); if (n) n.off = stepPos();
     youNow.delete(p); lastOffAt = performance.now();
@@ -684,7 +684,7 @@ function tradeTick(){
   // Magenta's notes
   while (pending.length && pending[0].step <= k) {
     const e = pending.shift();
-    if (e.kind === 'on') { noteOn(e.p, 96, e.len * stepMs() / 1000); magSounding.add(e.p); curNote = e.p; }
+    if (e.kind === 'on') { noteOn(e.p, 96, e.len * stepMs() / 1000); magSounding.add(e.p); curNote = e.p; spawnNote(e.p, 'mag'); }
     else if (e.kind === 'off') { noteOff(e.p); magSounding.delete(e.p); if (curNote === e.p) curNote = null; }
     else if (e.kind === 'chord') { curChord = e.c; curIdx = e.i; compNow.clear(); $('bar').textContent = [...e.c.pcs].map(sar).join('   '); }
     else if (e.kind === 'con') { noteOn(e.p, 62, e.len * stepMs() / 1000, CH.comp); compSounding.add(e.p); compNow.add(e.p % 12); }
@@ -954,6 +954,7 @@ function updatePad(){
   padNotes = padVoicing(want);
   padNotes.forEach(p => outs.forEach(o => { try { o.send([0x90 | CH.pad, p, 52]); } catch (e) {} }));
 }
+const lettered = name => name.replace(/♭/g, 'b');
 function renderStrip(){
   const gated = mode === 'trade' && endMode === 'all';
   const list = gated && seqList.length ? seqList : section();
@@ -963,7 +964,7 @@ function renderStrip(){
   const who = magTurn ? 'mag' : (mode === 'trade' ? 'you' : 'mag');
   const lo = list.length <= 7 ? 0 : Math.max(0, Math.min(at - 2, list.length - 7)), hi = Math.min(list.length, lo + 7);
   let h = lo > 0 ? '<span class="more">…</span>' : '';
-  for (let i = lo; i < hi; i++) h += `<span class="bar${i === at ? ' now ' + who : i < at && gated && !magTurn ? ' done' : ''}">${list[i].name}</span>`;
+  for (let i = lo; i < hi; i++) h += `<span class="bar${i === at ? ' now ' + who : i < at && gated && !magTurn ? ' done' : ''}">${lettered(list[i].name)}</span>`;
   if (hi < list.length) h += '<span class="more">…</span>';
   $('strip').innerHTML = h;
 }
@@ -972,7 +973,7 @@ function renderStrip(){
 // pink when you press them, blue for Magenta, pale blue for the chord Magenta plays, brass underglow for chord tones.
 function draw(){
   updatePad();
-  $('chord').firstChild.nodeValue = curChord ? curChord.name : '—';
+  $('chord').firstChild.nodeValue = curChord ? lettered(curChord.name) : '—';
   if (mode !== 'trade') $('bar').textContent = curChord ? [...curChord.pcs].map(sar).join('   ') : '';
   $('note').textContent = curNote != null ? '♪ ' + sar(curNote % 12) : '';
   renderStrip();
@@ -1005,7 +1006,7 @@ function keyU(pc){                           // where a note sits across the key
   const bl = KEYS.blacks.filter(k => k.pc === pc); return bl.length ? bl[bl.length > 1 && pc === SA ? 0 : 0].u : 0.5;
 }
 
-let kbSvg = null, gKeys = null, gHands = null, rcKb = null, kbSig = '';
+let kbSvg = null, gKeys = null, gHands = null, gNotes = null, gBody = null, gHeadRef = null, gLightRef = null, rcKb = null, kbSig = '';
 function buildStage(){
   kbSvg = document.createElementNS(NS, 'svg');
   kbSvg.setAttribute('viewBox', `0 ${KB.top} ${KB.VW} ${KB.VH}`);
@@ -1014,13 +1015,16 @@ function buildStage(){
   const defs = document.createElementNS(NS, 'defs');
   defs.innerHTML = '<filter id="soft" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="14"/></filter>';
   kbSvg.appendChild(defs);
-  const gFig = document.createElementNS(NS, 'g'); gKeys = document.createElementNS(NS, 'g'); gHands = document.createElementNS(NS, 'g');
-  kbSvg.append(gFig, gKeys, gHands);
+  const gLight = document.createElementNS(NS, 'g'), gFig = document.createElementNS(NS, 'g'), gHead = document.createElementNS(NS, 'g'), gLid = document.createElementNS(NS, 'g');
+  gKeys = document.createElementNS(NS, 'g'); gHands = document.createElementNS(NS, 'g'); gNotes = document.createElementNS(NS, 'g');
+  gBody = gFig; gHeadRef = gHead; gLightRef = gLight;
+  gFig.appendChild(gHead);
+  kbSvg.append(gLight, gFig, gNotes, gLid, gKeys, gHands);
   const rc = rcKb, cx = KB.VW / 2;
-  const add = el => gFig.appendChild(el);
+  const add = el => gFig.insertBefore(el, gHead), addHead = el => gHead.appendChild(el), addLight = el => gLight.appendChild(el);
   // a warm stage light behind the player
-  add(rc.circle(cx, -130, 380, {seed: 3, roughness: 2.2, stroke: 'none', fill: '#e9b44a', fillStyle: 'zigzag', hachureGap: 9, fillWeight: 2.5, hachureAngle: 20}));
-  add(rc.circle(cx, -130, 300, {seed: 4, roughness: 2, stroke: 'none', fill: '#f2c862', fillStyle: 'solid'}));
+  addLight(rc.circle(cx, -130, 380, {seed: 3, roughness: 2.2, stroke: 'none', fill: '#e9b44a', fillStyle: 'zigzag', hachureGap: 9, fillWeight: 2.5, hachureAngle: 20}));
+  addLight(rc.circle(cx, -130, 300, {seed: 4, roughness: 2, stroke: 'none', fill: '#f2c862', fillStyle: 'solid'}));
   // body: a rust coat with a cream shirt and a pink scarf
   add(rc.path(`M ${cx-210} 40 C ${cx-220} -40 ${cx-190} -120 ${cx-120} -140 L ${cx+120} -140 C ${cx+190} -120 ${cx+220} -40 ${cx+210} 40 Z`,
      {seed: 5, roughness: 1.8, stroke: '#17161a', strokeWidth: 3, fill: '#a4502b', fillStyle: 'solid'}));
@@ -1030,14 +1034,14 @@ function buildStage(){
   add(rc.path(`M ${cx-12} -136 C ${cx+30} -80 ${cx-26} -30 ${cx+14} 30`, {seed: 8, roughness: 1.2, stroke: '#d8417f', strokeWidth: 16}));
   // neck and head: eyes closed, lost in the music
   add(rc.rectangle(cx-20, -172, 40, 40, {seed: 9, roughness: 1.2, stroke: '#17161a', strokeWidth: 2, fill: '#7a5038', fillStyle: 'solid'}));
-  add(rc.ellipse(cx, -215, 104, 120, {seed: 10, roughness: 1.4, stroke: '#17161a', strokeWidth: 3, fill: '#8a5a3e', fillStyle: 'solid'}));
-  add(rc.path(`M ${cx-56} -230 C ${cx-60} -300 ${cx+62} -306 ${cx+56} -236 C ${cx+40} -262 ${cx-30} -270 ${cx-56} -230 Z`,
+  addHead(rc.ellipse(cx, -215, 104, 120, {seed: 10, roughness: 1.4, stroke: '#17161a', strokeWidth: 3, fill: '#8a5a3e', fillStyle: 'solid'}));
+  addHead(rc.path(`M ${cx-56} -230 C ${cx-60} -300 ${cx+62} -306 ${cx+56} -236 C ${cx+40} -262 ${cx-30} -270 ${cx-56} -230 Z`,
      {seed: 11, roughness: 2, stroke: '#17161a', strokeWidth: 2, fill: '#17161a', fillStyle: 'solid'}));
-  add(rc.arc(cx-20, -212, 26, 14, 0.2, Math.PI - 0.2, false, {seed: 12, roughness: 0.8, stroke: '#17161a', strokeWidth: 3}));
-  add(rc.arc(cx+20, -212, 26, 14, 0.2, Math.PI - 0.2, false, {seed: 13, roughness: 0.8, stroke: '#17161a', strokeWidth: 3}));
-  add(rc.arc(cx, -182, 34, 18, 0.3, Math.PI - 0.3, false, {seed: 14, roughness: 0.8, stroke: '#17161a', strokeWidth: 2.5}));
+  addHead(rc.arc(cx-20, -212, 26, 14, 0.2, Math.PI - 0.2, false, {seed: 12, roughness: 0.8, stroke: '#17161a', strokeWidth: 3}));
+  addHead(rc.arc(cx+20, -212, 26, 14, 0.2, Math.PI - 0.2, false, {seed: 13, roughness: 0.8, stroke: '#17161a', strokeWidth: 3}));
+  addHead(rc.arc(cx, -182, 34, 18, 0.3, Math.PI - 0.3, false, {seed: 14, roughness: 0.8, stroke: '#17161a', strokeWidth: 2.5}));
   // the keyboard's case, the long dark lid edge the keys sit under
-  add(rc.polygon([kbPoint(-0.02, -0.06), kbPoint(1.02, -0.06), kbPoint(1.02, 0), kbPoint(-0.02, 0)].map(([x, y]) => [x, y]),
+  gLid.appendChild(rc.polygon([kbPoint(-0.02, -0.06), kbPoint(1.02, -0.06), kbPoint(1.02, 0), kbPoint(-0.02, 0)].map(([x, y]) => [x, y]),
      {seed: 15, roughness: 1.4, stroke: '#17161a', strokeWidth: 2, fill: '#17161a', fillStyle: 'solid'}));
 }
 
@@ -1079,6 +1083,43 @@ function drawKeys(){
   });
 }
 
+// ---------- notes rise from the keys as ink marks: pink for you, blue for Magenta ----------
+const floaters = [];
+function spawnNote(p, who){
+  if (!gNotes || !rcKb) return;
+  const pc = p % 12, [x, y] = kbPoint(keyU(pc), 0), color = who === 'you' ? css('--you') : css('--mel');
+  const g = document.createElementNS(NS, 'g');
+  const seed = 200 + Math.floor(Math.random() * 500);
+  g.appendChild(rcKb.ellipse(0, 0, 74, 54, {seed, roughness: 2.2, stroke: color, strokeWidth: 2.5, fill: color, fillStyle: 'hachure', hachureGap: 5, hachureAngle: 60 + Math.random() * 40, fillWeight: 2}));
+  const t = document.createElementNS(NS, 'text');
+  t.setAttribute('y', 10); t.setAttribute('text-anchor', 'middle'); t.setAttribute('font-family', 'Kalam, cursive');
+  t.setAttribute('font-size', 28); t.setAttribute('font-weight', 700); t.setAttribute('fill', '#17161a');
+  t.textContent = sar(pc).replace('komal ', 'k').replace('tivra ', 't'); g.appendChild(t);
+  gNotes.appendChild(g);
+  floaters.push({g, x, y: y - 10, born: performance.now(), drift: (Math.random() - 0.5) * 140, spin: (Math.random() - 0.5) * 20});
+  while (floaters.length > 24) floaters.shift().g.remove();
+}
+function moveFloaters(now){
+  for (let i = floaters.length - 1; i >= 0; i--) {
+    const f = floaters[i], age = (now - f.born) / 2600;
+    if (age >= 1) { f.g.remove(); floaters.splice(i, 1); continue; }
+    const ease = 1 - Math.pow(1 - age, 2);
+    f.g.setAttribute('transform', `translate(${f.x + f.drift * ease} ${f.y - 430 * ease}) rotate(${f.spin * ease}) scale(${1.15 - 0.4 * age})`);
+    f.g.setAttribute('opacity', (1 - age) * (age < 0.08 ? age / 0.08 : 1));
+  }
+}
+// the pianist nods on the beat and sways across the bar; the stage light breathes with it
+function groove(now){
+  if (!gBody) return;
+  if (!playing || reducedMotion) { gBody.setAttribute('transform', ''); gHeadRef.setAttribute('transform', ''); gLightRef.setAttribute('transform', ''); return; }
+  const beats = unwarp((now - t0) / beatMs()), ph = beats - Math.floor(beats), bar = (beats % 4) / 4;
+  const nod = Math.pow(Math.max(0, Math.cos(ph * Math.PI)), 3) * 7, cx = KB.VW / 2;
+  gBody.setAttribute('transform', `rotate(${Math.sin(bar * Math.PI * 2) * 1.6} ${cx} 40)`);
+  gHeadRef.setAttribute('transform', `translate(0 ${nod}) rotate(${Math.sin(bar * Math.PI * 2) * 3} ${cx} -160)`);
+  const pulse = 1 + 0.025 * Math.pow(Math.max(0, Math.cos(ph * Math.PI)), 6);
+  gLightRef.setAttribute('transform', `translate(${cx} -130) scale(${pulse}) translate(${-cx} 130)`);
+}
+const reducedMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 // ---------- the pianist's hands ----------
 const hand = {L: {u: 0.3, t: 0.3, down: 0}, R: {u: 0.7, t: 0.7, down: 0}};
 let handColor = '', lastHandKey = '';
@@ -1132,6 +1173,7 @@ function animateHands(){
   }
   const key = [hand.L.u.toFixed(3), hand.R.u.toFixed(3), hand.L.down.toFixed(2), hand.R.down.toFixed(2), color].join();
   if (key !== lastHandKey) { lastHandKey = key; gHands.innerHTML = ''; drawHand('L', color); drawHand('R', color); }
+  const now = performance.now(); moveFloaters(now); groove(now);
   requestAnimationFrame(animateHands);
 }
 draw();
