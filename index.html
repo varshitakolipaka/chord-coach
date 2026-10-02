@@ -356,14 +356,19 @@ $('mic').onclick = startMic;
 
 let access = null;
 function refreshDevices(){
+  // Listen to every input at once, so a virtual port listed first can't hide the keyboard
   const sel = $('dev'), inputs = [...access.inputs.values()];
-  sel.innerHTML = inputs.length ? inputs.map(i => `<option value="${i.id}">${i.name}</option>`).join('')
+  sel.innerHTML = inputs.length ? inputs.map(i => `<option>${i.name || 'MIDI input'}</option>`).join('')
                                 : '<option>No MIDI device found — check the cable</option>';
-  inputs.forEach(i => i.onmidimessage = null);
-  const chosen = inputs.find(i => i.id === sel.value) || inputs[0];
-  if (chosen) { chosen.onmidimessage = onMsg; $('status').textContent = 'Listening to ' + chosen.name; $('status').className=''; }
-  else { $('status').textContent = 'Plug the keyboard into TO HOST and switch it on'; }
+  inputs.forEach(i => { i.onmidimessage = onMsg; });
+  if (inputs.length) {
+    $('status').textContent = 'Listening to: ' + inputs.map(i => i.name || 'MIDI input').join(', ');
+    $('status').className = '';
+  } else {
+    $('status').textContent = 'No keyboard found. Plug into TO HOST, switch it on, then reload.';
+  }
 }
+setInterval(() => { if (access) refreshDevices(); }, 3000);   // pick up a keyboard plugged in later
 
 $('dev').onchange = refreshDevices;
 $('restart').onclick = () => { doneSet.clear(); jump(0); };
