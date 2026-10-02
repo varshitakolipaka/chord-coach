@@ -4,54 +4,81 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Magenta Improviser</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;650;750&display=swap" rel="stylesheet">
 <style>
-  /* Stage-first layout: the practice view fills the screen; settings live in a drawer. */
-  :root{--bg:#0f0f12;--panel:#18181d;--panel2:#202027;--line:#2a2a32;--text:#f2f0ea;--dim:#8e8b84;
-        --accent:#f0b44c;--ok:#5fd38d;--bad:#e8664f;--mel:#6cb6ff;--you:#ff6fae;--magchord:#a9d2ff;
-        --want:#f7d58c;--white:#ecebe6;--black:#26262b}
+  /* Ink on paper. The keyboard is drawn by hand (Rough.js) in steep perspective, like the view from the bench.
+     Colour only means something: pink = you, blue = Magenta, ochre = the chord's notes. */
+  :root{--paper:#efe8da;--paper2:#e6ddca;--ink:#17161a;--char:#4a4741;--dim:#7d776b;--line:#cfc4ad;
+        --you:#d8417f;--mel:#2f6fb5;--magchord:#86aedb;--ochre:#d99a2b;--ok:#3f9a62;--bad:#c4462f;
+        --text:var(--ink);--brass:var(--ochre);--accent:var(--ink);--panel:#f4eee2;--panel2:#e7dfcd;--want:var(--ochre);
+        --hand:'Kalam',cursive;--ui:'Figtree',system-ui,-apple-system,sans-serif}
+  @font-face{font-family:'Kalam';font-weight:400;font-display:swap;src:url(fonts/kalam-latin-400-normal.woff2) format('woff2')}
+  @font-face{font-family:'Kalam';font-weight:700;font-display:swap;src:url(fonts/kalam-latin-700-normal.woff2) format('woff2')}
   *{box-sizing:border-box}
   html,body{height:100%}
-  body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,sans-serif;
-       display:flex;flex-direction:column;
+  body{margin:0;color:var(--ink);font-family:var(--ui);display:flex;flex-direction:column;overflow:hidden;
+       background:radial-gradient(130% 90% at 50% 30%,#f5efe3 0%,var(--paper) 55%,#d9cfba 100%) fixed var(--paper);
        padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}
-  a{color:var(--accent);text-decoration:none}
-  button{font:inherit;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:999px;
-         padding:9px 16px;cursor:pointer}
-  button:disabled{opacity:.4}
-  button:focus-visible,.chip:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  /* paper grain */
+  body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:20;opacity:.32;mix-blend-mode:multiply;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .45  0 0 0 0 .4  0 0 0 0 .33  0 0 0 .55 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>")}
+  a{color:var(--ink)}
+  button{font:inherit;color:var(--ink);background:transparent;border:1.5px solid var(--ink);border-radius:999px;padding:9px 16px;cursor:pointer}
+  button:disabled{opacity:.35}
+  button:focus-visible,.chip:focus-visible{outline:2px solid var(--you);outline-offset:2px}
 
-  /* top bar */
-  .top{display:flex;align-items:center;gap:10px;padding:10px 16px;padding-top:max(10px,env(safe-area-inset-top))}
-  .brand{display:flex;flex-direction:column;line-height:1.1;min-width:0}
-  .brand b{font-size:15px;font-weight:650;letter-spacing:.01em}
-  .brand a{font-size:12px;color:var(--dim)}
+  .top{display:flex;align-items:center;gap:12px;padding:10px 16px;padding-top:max(10px,env(safe-area-inset-top));position:relative;z-index:2}
+  .duet{display:flex;align-items:center;font-family:var(--hand);font-size:20px;gap:6px}
+  .duet span{padding:2px 10px;color:var(--dim);position:relative;transition:color .25s}
+  .duet span::after{content:"";position:absolute;left:6px;right:6px;bottom:2px;height:7px;border-radius:4px;opacity:0;transform:scaleX(.2);transition:opacity .25s,transform .35s cubic-bezier(.3,.7,.2,1);z-index:-1}
+  .duet span.y::after{background:var(--you)} .duet span.m::after{background:var(--mel)}
+  .duet.you span.y{color:var(--you)} .duet.you span.y::after{opacity:.35;transform:none}
+  .duet.mag span.m{color:var(--mel)} .duet.mag span.m::after{opacity:.35;transform:none}
+  .duet.think span.m{animation:breathe 1s ease-in-out infinite}
+  .duet i{font-style:normal;color:var(--dim)}
+  @keyframes breathe{50%{opacity:.4}}
   .spacer{flex:1}
-  #play,#stop{background:var(--accent);color:#1a1405;border:none;font-weight:700;padding:10px 22px;font-size:16px}
-  #stop{display:none;background:var(--panel2);color:var(--text);border:1px solid var(--line)}
+  #play,#stop{background:var(--ink);color:var(--paper);border:none;font-weight:750;padding:10px 22px;font-size:16px}
+  #stop{display:none;background:transparent;color:var(--ink);border:1.5px solid var(--ink)}
   body.playing #play{display:none} body.playing #stop{display:inline-block}
-  #load{font-size:13px;padding:7px 12px;background:transparent;color:var(--dim)}
-  #load.ready{color:var(--ok);border-color:transparent}
-  #menuBtn{width:42px;height:42px;padding:0;font-size:18px;display:grid;place-items:center}
+  #load{font-size:13px;padding:7px 12px;border-color:var(--line);color:var(--dim)}
+  #load.ready{display:none}
+  #menuBtn{width:42px;height:42px;padding:0;font-size:18px;display:grid;place-items:center;border-color:transparent}
 
-  /* stage */
-  .stage{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;
-         padding:8px 16px 24px;min-height:0}
-  .now{text-align:center;display:flex;flex-direction:column;align-items:center;gap:4px}
-  #turn{font-size:17px;font-weight:650;min-height:22px}
-  #turn.you{color:var(--you)} #turn.mag{color:var(--mel)}
-  #streak{font-size:13px;color:var(--accent);min-height:16px}
-  #chord{font-size:clamp(56px,13vw,124px);font-weight:750;line-height:1;letter-spacing:-.02em}
-  #chord.ting{animation:ting .6s ease-out}
-  @keyframes ting{0%{color:var(--ok);transform:scale(1.05)}100%{color:inherit;transform:none}}
-  @media (prefers-reduced-motion: reduce){#chord.ting{animation:none}}
-  #bar{font-size:13px;color:var(--dim);min-height:16px}
-  #note{font-size:22px;color:var(--mel);font-weight:600;min-height:28px}
-  #kb{width:100%;max-width:760px}
-  .stage > #kb svg{max-height:46vh;width:auto;max-width:100%;margin:0 auto}
+  /* the sequence, lettered like a lead sheet */
+  .strip{display:flex;justify-content:center;align-items:baseline;font-family:var(--hand);font-size:24px;color:var(--dim);
+         padding:0 16px;white-space:nowrap;overflow:hidden;min-height:36px;position:relative;z-index:2}
+  .strip .bar{padding:0 14px;border-left:2px solid var(--char)}
+  .strip .bar:last-child{border-right:2px solid var(--char)}
+  .strip .bar.done{color:var(--ochre)}
+  .strip .bar.now{color:var(--ink);font-weight:700}
+  .strip .bar.now.you{color:var(--you)} .strip .bar.now.mag{color:var(--mel)}
+  .strip .more{padding:0 8px;opacity:.5}
+
+  .stage{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:0 12px 14px;min-height:0;position:relative;z-index:1}
+  .lead{position:relative;display:flex;flex-direction:column;align-items:center}
+  #chord{font-family:var(--hand);font-weight:700;font-size:clamp(76px,16vw,150px);line-height:.95;position:relative;color:var(--ink)}
+  #ring{position:absolute;left:50%;top:50%;width:10px;height:10px;margin:-5px 0 0 -5px;border-radius:50%;pointer-events:none;opacity:0;border:3px solid var(--ochre)}
+  #ring.go{animation:ring .9s ease-out}
+  @keyframes ring{0%{opacity:.9;transform:scale(1)}100%{opacity:0;transform:scale(34)}}
+  #chord.ting{animation:inked .9s ease-out}
+  @keyframes inked{0%{color:var(--ochre)}100%{color:var(--ink)}}
+  @media (prefers-reduced-motion: reduce){#ring.go,#chord.ting,.duet.think span.m{animation:none}}
+  #bar{font-family:var(--hand);font-size:20px;color:var(--ochre);min-height:26px}
+  #note{font-family:var(--hand);font-size:22px;color:var(--mel);min-height:28px}
+  #streak{position:fixed;right:18px;bottom:max(14px,env(safe-area-inset-bottom));font-family:var(--hand);font-size:18px;color:var(--ochre);z-index:2}
+  #turn{display:none}
+  #kb{width:100%;max-width:900px}
   svg{width:100%;height:auto;display:block}
-  .legend{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin-top:10px;font-size:12px;color:var(--dim)}
-  .legend i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+  .stage > #kb svg{max-height:50vh;width:auto;max-width:100%;margin:0 auto;overflow:visible}
 
+  @media (orientation: landscape) and (max-height: 520px){
+    .top{padding-top:4px;padding-bottom:0} .strip{font-size:19px;min-height:28px}
+    .stage{flex-direction:row;gap:14px;padding-bottom:6px}
+    .lead{flex:0 0 32%} #chord{font-size:66px} #note{font-size:18px} #bar{font-size:16px}
+    #kb{flex:1;max-width:none} .stage > #kb svg{max-height:70vh}
+  }
   /* drawer */
   .scrim{position:fixed;inset:0;background:rgba(0,0,0,.45);opacity:0;pointer-events:none;transition:opacity .2s;z-index:9}
   .drawer{position:fixed;top:0;right:0;bottom:0;width:min(420px,92vw);background:var(--panel);border-left:1px solid var(--line);
@@ -80,36 +107,35 @@
   input[type=range]{width:100%;accent-color:var(--accent)}
   .stack{display:flex;flex-direction:column;gap:10px}
 
-  /* phone held sideways: chord on the left, keyboard on the right */
-  @media (orientation: landscape) and (max-height: 520px){
-    .top{padding-top:6px;padding-bottom:4px}
-    .stage{flex-direction:row;gap:20px;padding-bottom:10px}
-    .now{flex:0 0 34%}
-    #chord{font-size:52px} #note{font-size:18px} #turn{font-size:14px}
-    #kb{flex:1;max-width:none} .stage svg{max-height:62vh;width:auto;max-width:100%;margin:0 auto}
+  /* narrow phones: keep the top bar on one line */
+  @media (max-width: 480px){
+    .top{gap:6px;padding-left:12px;padding-right:8px} .duet{font-size:17px} .duet span{padding:2px 6px}
+    #play,#stop{padding:8px 14px;font-size:15px} #load{padding:6px 9px;font-size:12px}
   }
+  button{white-space:nowrap}
 </style>
 </head>
 <body>
 <header class="top">
-  <div class="brand"><b>Improv</b><a href="./">chord coach</a></div>
+  <div class="duet idle" id="duet" aria-live="polite"><span class="y">You</span><i>&amp;</i><span class="m">Magenta</span></div>
   <div class="spacer"></div>
   <button id="load" title="Magenta model">Loading…</button>
   <button id="play" disabled>▶ Play</button>
   <button id="stop" disabled>■ Stop</button>
   <button id="menuBtn" aria-label="Settings">⚙︎</button>
 </header>
+<div class="strip" id="strip"></div>
 
 <main class="stage">
-  <div class="now">
+  <div class="lead">
     <div id="turn"></div>
-    <div id="chord">—</div>
+    <div id="chord">—<span id="ring"></span></div>
     <div id="bar"></div>
     <div id="note"></div>
-    <div id="streak"></div>
   </div>
   <div id="kb"></div>
 </main>
+<div id="streak"></div>
 
 <div class="scrim" id="scrim"></div>
 <aside class="drawer" id="drawer" aria-label="Settings">
@@ -194,6 +220,7 @@
 </aside>
 
 <script src="magentamusic.js"></script>
+<script src="rough.js"></script>
 <script src="seq.js"></script>
 <script>
 // ---------- Names ----------
@@ -387,7 +414,7 @@ function buildEvents(chords, notes, t0){
   let step = 0;
   chords.forEach(c => {
     const len = c.beats * SPQ;
-    ev.push({t: t0 + stepToMs(step), kind: 'chord', c});
+    ev.push({t: t0 + stepToMs(step), kind: 'chord', c, i: chords.indexOf(c)});
     if ($('comp').checked) c.voicing.forEach(p => {
       ev.push({t: t0 + stepToMs(step), kind: 'on', p, v: 55, dur: len * sm / 1000});
       ev.push({t: t0 + stepToMs(step + len) - 30, kind: 'off', p});
@@ -419,7 +446,7 @@ function tick(){
   const now = performance.now();
   while (queue.length && queue[0].t <= now) {
     const e = queue.shift();
-    if (e.kind === 'chord') { curChord = e.c; draw(); }
+    if (e.kind === 'chord') { curChord = e.c; curIdx = e.i; draw(); }
     else if (e.kind === 'on') { noteOn(e.p, e.v, e.dur, e.mel ? CH.mel : CH.comp); if (e.mel) curNote = e.p; else compNow.add(e.p % 12); draw(); }
     else { noteOff(e.p, e.mel ? CH.mel : CH.comp); if (e.mel && curNote === e.p) curNote = null; if (!e.mel) compNow.delete(e.p % 12); draw(); }
   }
@@ -437,7 +464,7 @@ document.querySelectorAll('#mode .chip').forEach(el => el.onclick = () => {
 let youNow = new Set(), phrase = [], lastOffAt = 0;
 let phase = 'listen';              // listen → you → think → answer → listen
 let token = 0, magSounding = new Set();
-let grid = [], gridStart = [], t0 = 0, lastStep = -1, pending = [];
+let grid = [], gridStart = [], gridIdx = [], curIdx = 0, t0 = 0, lastStep = -1, pending = [];
 
 const stepPos = () => unwarp((performance.now() - t0) / beatMs()) * SPQ;   // fractional step on the (swung) chord clock
 const beatMs = () => 60000 / +$('tempo').value;
@@ -478,7 +505,7 @@ function chordStruck(){
     const p = 84 + ((third - 84) % 12 + 12) % 12;    // two octaves up, C6–B6
     noteOn(p, 72, 0.6, CH.mel); setTimeout(() => noteOff(p, CH.mel), 500);
   }
-  const el = $('chord'); el.classList.remove('ting'); void el.offsetWidth; el.classList.add('ting');
+  const el = $('chord'), ring = $('ring'); el.classList.remove('ting'); ring.classList.remove('go'); void el.offsetWidth; el.classList.add('ting'); ring.classList.add('go');
   // "Play every chord" game: the harmony waits for you, and your turn ends after the last chord
   if (endMode === 'all' && (phase === 'you' || phase === 'listen')) {
     if (phase === 'listen') { phase = 'you'; phrase = []; }
@@ -564,7 +591,7 @@ document.querySelectorAll('#endMode .chip').forEach(el => el.onclick = () => {
   endMode = el.dataset.e; streak = 0; showStreak(); if (playing) restart();
   document.querySelectorAll('#endMode .chip').forEach(x => x.classList.toggle('on', x === el));
 });
-function showStreak(){ $('streak').textContent = endMode === 'all' && streak ? '🎯 ' + streak : ''; }
+function showStreak(){ $('streak').textContent = endMode === 'all' && streak ? '◎ ' + streak + ' landed' : ''; }
 
 function onIn(e){
   const [st, p, v] = e.data, cmd = st & 0xf0;
@@ -634,6 +661,7 @@ function showTurn(){
              think: ['Magenta…', 'mag'],
              answer: ['Magenta', 'mag']}[phase];
   t.textContent = m[0]; t.className = m[1];
+  $('duet').className = 'duet ' + (phase === 'think' ? 'mag think' : m[1]);
 }
 
 function tradeTick(){
@@ -645,9 +673,9 @@ function tradeTick(){
       if (step === 0 || gridStart[((step % grid.length) + grid.length) % grid.length]) {
         if (prevC) prevC.voicing.forEach(p => { noteOff(p, CH.comp); compNow.delete(p % 12); });
         if ($('comp').checked) c.voicing.forEach(p => { noteOn(p, 50, c.beats * 60 / +$('tempo').value, CH.comp); compNow.add(p % 12); });
-        curChord = c;
+        curChord = c; curIdx = gridIdx[((step % grid.length) + grid.length) % grid.length];
       }
-      $('bar').textContent = where(c) + '  ·  ' + [...c.pcs].map(sar).join(' · ');
+      $('bar').textContent = [...c.pcs].map(sar).join('   ');
     }
     lastStep = k;
   }
@@ -658,18 +686,18 @@ function tradeTick(){
     const e = pending.shift();
     if (e.kind === 'on') { noteOn(e.p, 96, e.len * stepMs() / 1000); magSounding.add(e.p); curNote = e.p; }
     else if (e.kind === 'off') { noteOff(e.p); magSounding.delete(e.p); if (curNote === e.p) curNote = null; }
-    else if (e.kind === 'chord') { curChord = e.c; compNow.clear(); $('bar').textContent = (e.i + 1) + ' / ' + seqList.length + '  ·  ' + [...e.c.pcs].map(sar).join(' · '); }
+    else if (e.kind === 'chord') { curChord = e.c; curIdx = e.i; compNow.clear(); $('bar').textContent = [...e.c.pcs].map(sar).join('   '); }
     else if (e.kind === 'con') { noteOn(e.p, 62, e.len * stepMs() / 1000, CH.comp); compSounding.add(e.p); compNow.add(e.p % 12); }
     else if (e.kind === 'coff') { noteOff(e.p, CH.comp); compSounding.delete(e.p); compNow.delete(e.p % 12); }
   }
   if (phase === 'answer' && !pending.length) { phase = 'listen'; if (endMode === 'all') resetToYou(); showTurn(); }   // answer finished: wait for you
   if (endMode === 'all' && (phase === 'listen' || phase === 'you') && cue !== 'off' && !chordComplete() && performance.now() - lastCueAt > beatMs() * 7.5) playCue(curChord);
-  if (endMode === 'all' && (phase === 'listen' || phase === 'you')) $('bar').textContent = (gi + 1) + ' / ' + seqList.length + '  ·  ' + [...curChord.pcs].map(sar).join(' · ');
+  if (endMode === 'all' && (phase === 'listen' || phase === 'you')) $('bar').textContent = [...curChord.pcs].map(sar).join('   ');
   draw();
 }
 
 function startTrade(){
-  grid = []; gridStart = []; section().forEach(c => { for (let i = 0; i < c.beats * SPQ; i++) { grid.push(c); gridStart.push(i === 0); } });
+  grid = []; gridStart = []; gridIdx = []; section().forEach((c, j) => { for (let i = 0; i < c.beats * SPQ; i++) { grid.push(c); gridStart.push(i === 0); gridIdx.push(j); } });
   t0 = performance.now() + 300; lastStep = -1; pending = []; phrase = []; phase = 'listen'; token++;
   seqList = section(); streak = 0; showStreak(); resetToYou(); changes = [{step: 0, c: seqList[0]}];
   startBand(t0);
@@ -926,32 +954,92 @@ function updatePad(){
   padNotes = padVoicing(want);
   padNotes.forEach(p => outs.forEach(o => { try { o.send([0x90 | CH.pad, p, 52]); } catch (e) {} }));
 }
+function renderStrip(){
+  const gated = mode === 'trade' && endMode === 'all';
+  const list = gated && seqList.length ? seqList : section();
+  if (!playing || !list.length) { $('strip').innerHTML = ''; return; }
+  const magTurn = phase === 'answer' || phase === 'think';
+  const at = gated && !magTurn ? gi : curIdx;
+  const who = magTurn ? 'mag' : (mode === 'trade' ? 'you' : 'mag');
+  const lo = list.length <= 7 ? 0 : Math.max(0, Math.min(at - 2, list.length - 7)), hi = Math.min(list.length, lo + 7);
+  let h = lo > 0 ? '<span class="more">…</span>' : '';
+  for (let i = lo; i < hi; i++) h += `<span class="bar${i === at ? ' now ' + who : i < at && gated && !magTurn ? ' done' : ''}">${list[i].name}</span>`;
+  if (hi < list.length) h += '<span class="more">…</span>';
+  $('strip').innerHTML = h;
+}
+
+// The instrument: one fixed octave, Sa to Sa. Keys glow like stage lights:
+// pink when you press them, blue for Magenta, pale blue for the chord Magenta plays, brass underglow for chord tones.
 function draw(){
   updatePad();
-  $('chord').textContent = curChord ? curChord.name : '—';
-  if (mode !== 'trade') $('bar').textContent = curChord ? where(curChord) + '  ·  ' + [...curChord.pcs].map(sar).join(' · ') : '';
-  $('note').textContent = curNote != null ? '♪ ' + sar(curNote % 12) + '  (' + WEST[curNote % 12] + ')' : '';
-  const W = 46, H = 170, BW = 28, BH = 104, PAD = BW / 2 + 2;
-  let whites = '', blacks = '', wi = 0;
+  $('chord').firstChild.nodeValue = curChord ? curChord.name : '—';
+  if (mode !== 'trade') $('bar').textContent = curChord ? [...curChord.pcs].map(sar).join('   ') : '';
+  $('note').textContent = curNote != null ? '♪ ' + sar(curNote % 12) : '';
+  renderStrip();
+  drawKeys();
+}
+
+// ---------- The hand-drawn keyboard ----------
+// Seen from the bench: the near edge is wide, the far edge narrower. One octave, Sa to Sa.
+const KB = {VW: 900, VH: 330, far: 22, near: 318, wFar: 0.66, blackLen: 0.58};
+function kbPoint(u, v){                      // u: 0..1 across, v: 0 (far) .. 1 (near)
+  const w = KB.VW * (KB.wFar + (1 - KB.wFar) * v) * 0.97;
+  return [KB.VW / 2 + (u - 0.5) * w, KB.far + (KB.near - KB.far) * Math.pow(v, 0.92)];
+}
+function quad(u0, u1, v0, v1){ return [kbPoint(u0, v0), kbPoint(u1, v0), kbPoint(u1, v1), kbPoint(u0, v1)]; }
+let kbSvg = null;
+let kbSig = '';
+function drawKeys(){
+  if (!window.rough) return;
+  // only redraw when something visible changed (the tick runs ~100 times a second)
+  const sig = [[...youNow, ...chordHand].map(p => p % 12).sort().join(), curNote == null ? '' : curNote % 12,
+               [...compNow].sort().join(), curChord ? curChord.name : ''].join('|');
+  if (sig === kbSig && $('kb').firstChild) return;
+  kbSig = sig;
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', `0 0 ${KB.VW} ${KB.VH}`);
+  svg.setAttribute('role', 'img'); svg.setAttribute('aria-label', 'Keyboard, one octave from Sa to Sa');
+  const rc = rough.svg(svg);
+  // layout: 7 white keys (E..D) with half a black key (E♭) hanging off each end
+  const whites = [], blacks = [], unit = 1 / 7.6, off = 0.3 * unit;
+  let wi = 0;
   for (let n = 63; n <= 75; n++) {
-    const pc = n % 12, mel = curNote != null && curNote % 12 === pc, ch = curChord && curChord.pcs.has(pc);
-    const you = [...youNow, ...chordHand].some(p => p % 12 === pc), mch = compNow.has(pc);
-    const fill = you ? 'var(--you)' : mel ? 'var(--mel)' : mch ? 'var(--magchord)' : ch ? 'var(--want)' : (BLACK.has(pc) ? 'var(--black)' : 'var(--white)');
-    const txt = you || mel || mch || ch ? '#111' : (BLACK.has(pc) ? '#ccc' : '#444');
-    const lbl = sar(pc).replace('komal ','k ').replace('tivra ','t ');
-    if (!BLACK.has(pc)) {
-      const x = PAD + wi * W;
-      whites += `<rect x="${x}" y="0" width="${W-3}" height="${H}" rx="5" fill="${fill}"/>` +
-                `<text x="${x+(W-3)/2}" y="${H-14}" font-size="12" font-weight="${mel||ch?700:500}" text-anchor="middle" fill="${txt}">${lbl}</text>`;
-      wi++;
-    } else {
-      const x = PAD + wi * W - BW / 2 - 1.5;
-      blacks += `<rect x="${x}" y="0" width="${BW}" height="${BH}" rx="4" fill="${fill}" stroke="#000"/>` +
-                `<text x="${x+BW/2}" y="${BH-12}" font-size="10" font-weight="700" text-anchor="middle" fill="${txt}">${lbl.replace(' ','')}</text>`;
-    }
+    const pc = n % 12;
+    if (BLACK.has(pc)) blacks.push({n, pc, u: off + wi * unit}); else { whites.push({n, pc, u0: off + wi * unit, u1: off + (wi + 1) * unit}); wi++; }
   }
-  $('kb').innerHTML = `<svg viewBox="0 0 ${PAD*2+wi*W} ${H}">${whites}${blacks}</svg>
-    <div class="legend"><span><i style="background:var(--want)"></i>chord tones</span><span><i style="background:var(--you)"></i>you</span><span><i style="background:var(--mel)"></i>Magenta's notes</span><span><i style="background:var(--magchord)"></i>chord being played</span></div>`;
+  const state = pc => {
+    const you = [...youNow, ...chordHand].some(p => p % 12 === pc);
+    const mel = curNote != null && curNote % 12 === pc, mch = compNow.has(pc), ch = curChord && curChord.pcs.has(pc);
+    return {you, mel, mch, ch, lit: you ? 'var(--you)' : mel ? 'var(--mel)' : mch ? 'var(--magchord)' : null};
+  };
+  const label = (x, y, text, size, fill, weight) => {
+    const t = document.createElementNS(NS, 'text');
+    t.setAttribute('x', x); t.setAttribute('y', y); t.setAttribute('text-anchor', 'middle');
+    t.setAttribute('font-family', "Kalam, cursive"); t.setAttribute('font-size', size); t.setAttribute('font-weight', weight || 400);
+    t.setAttribute('fill', fill); t.textContent = text; svg.appendChild(t);
+  };
+  whites.forEach((k, i) => {
+    const s = state(k.pc), pts = quad(k.u0 + 0.004, k.u1 - 0.004, 0, 1);
+    const fill = s.lit ? getComputedStyle(document.body).getPropertyValue(s.lit.slice(4, -1)).trim() : s.ch ? '#d99a2b' : null;
+    svg.appendChild(rc.polygon(pts, {seed: 11 + i, roughness: 1.4, bowing: 1.2, stroke: '#17161a', strokeWidth: 2.2,
+      fill: fill || undefined, fillStyle: s.lit ? 'solid' : 'hachure', hachureGap: 7, hachureAngle: -50, fillWeight: 1.6}));
+    const [x, y] = kbPoint((k.u0 + k.u1) / 2, 0.86);
+    label(x, y, sar(k.pc).replace('komal ', 'k ').replace('tivra ', 't '), 22, s.lit ? '#fff' : s.ch ? '#7a4f08' : '#4a4741', s.ch || s.lit ? 700 : 400);
+  });
+  const bw = unit * 0.56;
+  blacks.forEach((k, i) => {
+    const s = state(k.pc), u0 = Math.max(0, k.u - bw / 2), u1 = Math.min(1, k.u + bw / 2);
+    const pts = quad(u0, u1, 0, KB.blackLen);
+    const lit = s.lit ? getComputedStyle(document.body).getPropertyValue(s.lit.slice(4, -1)).trim() : null;
+    svg.appendChild(rc.polygon(pts, {seed: 41 + i, roughness: 1.6, stroke: '#17161a', strokeWidth: 2.4,
+      fill: lit || '#17161a', fillStyle: lit ? 'solid' : 'solid'}));
+    if (s.ch && !lit) svg.appendChild(rc.line(...kbPoint(u0 + 0.008, KB.blackLen - 0.1), ...kbPoint(u1 - 0.008, KB.blackLen - 0.1),
+      {seed: 61 + i, stroke: '#d99a2b', strokeWidth: 5, roughness: 1.2}));
+    const [x, y] = kbPoint(k.u, KB.blackLen - 0.2);
+    label(x, y, sar(k.pc).replace('komal ', 'k').replace('tivra ', 't'), 16, lit ? '#fff' : s.ch ? '#f0c065' : '#cfc8b8', 700);
+  });
+  const host = $('kb'); host.innerHTML = ''; host.appendChild(svg);
 }
 draw();
 </script>

@@ -5,7 +5,7 @@
   .seq-mode{margin-bottom:4px} .seq-item{display:flex;align-items:center;gap:6px}
   .seq-n{font-size:11px;color:var(--dim);font-weight:400} .seq-empty{color:var(--dim);font-size:14px}
   .seq-tools{margin:8px 0 0} .seq-tools button{padding:6px 10px;font-size:14px}
-  .seq-list .chip.on{border-color:var(--accent);background:#2e2a20}`;
+  .seq-list .chip.on{border-color:var(--accent);background:var(--panel2)}`;
   const tag = document.createElement('style'); tag.textContent = css; document.head.appendChild(tag);
   const PRESETS = [
     ['ii–V–I in E♭ (bars 1–2)', ['Fm7', 'B♭7', 'E♭maj7']],
