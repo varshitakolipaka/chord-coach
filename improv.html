@@ -133,6 +133,13 @@
         <div class="chip on" data-e="all">🎯 After every chord</div>
         <div class="chip" data-e="pause">On a pause</div>
       </div>
+      <div class="mini" style="margin:4px 0 0">Sound clue for your chord</div>
+      <div class="chips" id="cue">
+        <div class="chip on" data-c="bass">Bass note</div>
+        <div class="chip" data-c="chord">Whole chord</div>
+        <div class="chip" data-c="both">Both</div>
+        <div class="chip" data-c="off">Off</div>
+      </div>
       <div class="mini" style="margin:4px 0 0">Magenta's notes</div>
       <div class="chips" id="stick">
         <div class="chip" data-s="free">Free</div>
@@ -471,14 +478,32 @@ function chordStruck(){
   // "Play every chord" game: the harmony waits for you, and your turn ends after the last chord
   if (endMode === 'all' && (phase === 'you' || phase === 'listen')) {
     if (phase === 'listen') { phase = 'you'; phrase = []; }
-    if (gi < seqList.length - 1) { gi++; curChord = seqList[gi]; changes.push({step: Math.floor(stepPos()), c: curChord}); }
+    if (gi < seqList.length - 1) { gi++; curChord = seqList[gi]; changes.push({step: Math.floor(stepPos()), c: curChord}); setTimeout(() => playCue(curChord), 250); }
     else { streak++; showStreak(); answerAll(); }
   }
 }
+// ---- sound clue: when it's your turn on a chord, the Casio sounds it so you can find it by ear ----
+let cue = 'bass', lastCueAt = 0, cueChord = null;
+function playCue(c){
+  if (!c || cue === 'off' || !playing) return;
+  cueChord = c; lastCueAt = performance.now();
+  const durMs = beatMs() * 2;
+  if (cue === 'bass' || cue === 'both') {
+    const root = 36 + ((c.root - 36) % 12 + 12) % 12;          // C2–B2: a low, bassy root
+    bassHit(performance.now(), root, durMs);
+    bassHit(performance.now(), root + 12, durMs * 0.9);          // its octave, for a fuller bass
+  }
+  if (cue === 'chord' || cue === 'both') c.voicing.forEach(p => { noteOn(p, 48, durMs / 1000, CH.comp); setTimeout(() => noteOff(p, CH.comp), durMs); });
+}
+document.querySelectorAll('#cue .chip').forEach(el => el.onclick = () => {
+  cue = el.dataset.c; document.querySelectorAll('#cue .chip').forEach(x => x.classList.toggle('on', x === el));
+  if (playing && endMode === 'all' && (phase === 'listen' || phase === 'you')) playCue(curChord);
+});
 // ---- gated mode state ----
 let seqList = [], gi = 0, changes = [], compNow = new Set(), compSounding = new Set();
 function resetToYou(){
   gi = 0; curChord = seqList[0]; changes = [{step: Math.max(0, Math.floor(stepPos())), c: curChord}];
+  setTimeout(() => { if (endMode === 'all' && (phase === 'listen' || phase === 'you')) playCue(curChord); }, 400);
   compSounding.forEach(p => noteOff(p, CH.comp)); compSounding.clear(); compNow.clear();
 }
 // Magenta's turn in gated mode: it plays every chord of the sequence, with its phrase over the top
@@ -632,6 +657,7 @@ function tradeTick(){
     else if (e.kind === 'coff') { noteOff(e.p, CH.comp); compSounding.delete(e.p); compNow.delete(e.p % 12); }
   }
   if (phase === 'answer' && !pending.length) { phase = 'listen'; if (endMode === 'all') resetToYou(); showTurn(); }   // answer finished: wait for you
+  if (endMode === 'all' && (phase === 'listen' || phase === 'you') && cue !== 'off' && !chordComplete() && performance.now() - lastCueAt > beatMs() * 8) playCue(curChord);
   if (endMode === 'all' && (phase === 'listen' || phase === 'you')) $('bar').textContent = (gi + 1) + ' / ' + seqList.length + '  ·  ' + [...curChord.pcs].map(sar).join(' · ');
   draw();
 }
