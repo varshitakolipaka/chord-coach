@@ -31,6 +31,9 @@
   .toggle{display:flex;align-items:center;gap:8px;font-size:15px}
   .toggle input{width:22px;height:22px}
   svg{width:100%;max-width:640px;height:auto;display:block;margin:0 auto}
+  #chord.ting{animation:ting .6s ease-out}
+  @keyframes ting{0%{color:var(--ok);transform:scale(1.06)}100%{color:inherit;transform:none}}
+  @media (prefers-reduced-motion: reduce){#chord.ting{animation:none;color:var(--ok)}}
   #turn{font-size:22px;font-weight:700;margin-bottom:8px;min-height:28px}
   #turn.you{color:var(--ok)} #turn.mag{color:var(--mel)}
   .legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;font-size:14px;color:var(--dim)}
@@ -98,6 +101,7 @@
 </div>
 
 <div class="panel">
+  <div class="sub" style="margin:0 0 10px">Left hand below middle C plays the chord, right hand plays your phrase. Turn off "Play the chords too" to play the chords yourself.</div>
   <div class="label">Mode</div>
   <div class="chips" id="mode" style="margin-bottom:14px">
     <div class="chip on" data-m="trade">🎹 Take turns (you play, Magenta answers)</div>
@@ -129,6 +133,7 @@
   <span></span>
   <div class="row" style="margin:0">
     <label class="toggle"><input id="comp" type="checkbox" checked> Play the chords too</label>
+    <label class="toggle"><input id="ting" type="checkbox" checked> Ting when you play the chord</label>
     <label class="toggle"><input id="local" type="checkbox"> Also play through this device</label>
   </div>
   <span></span>
@@ -363,17 +368,44 @@ function silenceMagenta(){
   pending = []; magSounding.forEach(noteOff); magSounding.clear(); curNote = null;
 }
 
+// Left hand (below middle C) plays the chord; right hand (middle C and up) plays your phrase.
+const SPLIT = 60;
+let chordHand = new Set(), tingedAt = -1;
+function chordStartStep(){                          // step where the current chord began
+  let k = Math.floor(stepPos());
+  while (k > 0 && !gridStart[((k % grid.length) + grid.length) % grid.length]) k--;
+  return k;
+}
+// The moment every note of the chord's shell is held, ring a high "ting" in harmony (the chord's 3rd)
+function checkTing(){
+  if (!$('ting').checked || !curChord) return;
+  const held = new Set([...chordHand, ...youNow].map(p => p % 12));
+  const at = chordStartStep();
+  if (at === tingedAt || ![...curChord.pcs].every(pc => held.has(pc))) return;
+  tingedAt = at;
+  const third = [...curChord.tones].find(pc => (pc - curChord.root + 12) % 12 === 3 || (pc - curChord.root + 12) % 12 === 4);
+  const p = 84 + ((third - 84) % 12 + 12) % 12;      // two octaves up, C6–B6
+  noteOn(p, 72, 0.6); setTimeout(() => noteOff(p), 500);
+  const el = $('chord'); el.classList.remove('ting'); void el.offsetWidth; el.classList.add('ting');
+}
+
 function onIn(e){
   const [st, p, v] = e.data, cmd = st & 0xf0;
   if (!playing || mode !== 'trade') return;
-  if (cmd === 0x90 && v > 0) {
+  const on = cmd === 0x90 && v > 0, off = cmd === 0x80 || (cmd === 0x90 && v === 0);
+  if (!on && !off) return;
+  if (p < SPLIT) {                                  // chord hand: never counts as your phrase
+    if (on) { chordHand.add(p); checkTing(); } else chordHand.delete(p);
+    draw(); return;
+  }
+  if (on) {
     if (phase === 'answer' || phase === 'think') { token++; silenceMagenta(); phrase = []; }  // you interrupt: Magenta yields
     if (phase !== 'you') { phrase = []; phase = 'you'; }
-    phrase.push({p, on: stepPos(), off: null}); youNow.add(p);
-  } else if (cmd === 0x80 || (cmd === 0x90 && v === 0)) {
+    phrase.push({p, on: stepPos(), off: null}); youNow.add(p); checkTing();
+  } else {
     const n = [...phrase].reverse().find(x => x.p === p && x.off === null); if (n) n.off = stepPos();
     youNow.delete(p); lastOffAt = performance.now();
-  } else return;
+  }
   showTurn(); draw();
 }
 
@@ -470,7 +502,7 @@ $('play').onclick = async () => {
 };
 function stop(){
   playing = false; clearInterval(timer); clearTimeout(nextPass); queue = [];
-  token++; allOff(); curChord = null; curNote = null; pending = []; magSounding.clear(); youNow.clear(); $('turn').textContent = ''; draw();
+  token++; allOff(); curChord = null; curNote = null; pending = []; magSounding.clear(); youNow.clear(); chordHand.clear(); tingedAt = -1; $('turn').textContent = ''; draw();
   $('play').disabled = !rnn; $('stop').disabled = true; status();
 }
 $('stop').onclick = stop;
@@ -490,7 +522,7 @@ function draw(){
   let whites = '', blacks = '', wi = 0;
   for (let n = 63; n <= 75; n++) {
     const pc = n % 12, mel = curNote != null && curNote % 12 === pc, ch = curChord && curChord.pcs.has(pc);
-    const you = [...youNow].some(p => p % 12 === pc);
+    const you = [...youNow, ...chordHand].some(p => p % 12 === pc);
     const fill = you ? 'var(--ok)' : mel ? 'var(--mel)' : ch ? 'var(--want)' : (BLACK.has(pc) ? 'var(--black)' : 'var(--white)');
     const txt = you || mel || ch ? '#111' : (BLACK.has(pc) ? '#ccc' : '#444');
     const lbl = sar(pc).replace('komal ','k ').replace('tivra ','t ');
