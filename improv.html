@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Magenta Improviser</title>
 <style>
   :root{--bg:#121214;--panel:#1d1d21;--text:#f2f0ea;--dim:#8e8b84;--accent:#f0b44c;--ok:#5fd38d;--mel:#6cb6ff;--bad:#e8664f;--white:#ecebe6;--black:#26262b;--want:#f7d58c}
@@ -35,12 +35,52 @@
   #turn.you{color:var(--ok)} #turn.mag{color:var(--mel)}
   .legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;font-size:14px;color:var(--dim)}
   .legend i{display:inline-block;width:14px;height:14px;border-radius:3px;margin-right:6px;vertical-align:-2px}
+
+  .layout{display:flex;flex-direction:column} .side{order:-1}
+  /* ---------- iPhone sideways: stage on the left, controls on the right ---------- */
+  body{padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right))}
+  @media (orientation: landscape) and (max-height: 520px){
+    body{max-width:none;padding-top:8px;padding-bottom:8px;height:100vh;overflow:hidden}
+    h1,.sub.top{display:none}
+    .layout{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:10px;height:calc(100vh - 16px)}
+    .stage{grid-column:1;grid-row:1;display:flex;flex-direction:column;gap:8px;min-height:0}
+    .side{grid-column:2;grid-row:1;overflow-y:auto;-webkit-overflow-scrolling:touch;min-height:0;padding-bottom:20px}
+    .panel{padding:10px 12px;margin-bottom:8px;border-radius:12px}
+    .stage .panel{margin:0}
+    .row{gap:6px;margin-bottom:8px}
+    button,select{padding:8px 10px;font-size:14px}
+    .chips{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px}
+    .chip{white-space:nowrap;padding:6px 10px;font-size:14px}
+    .legend{margin-top:4px;font-size:12px;gap:10px}
+    .stage svg{max-height:calc(100vh - 150px);width:auto;max-width:100%}
+    .stage .kbwrap{flex:1;min-height:0;display:flex;flex-direction:column;justify-content:center}
+  }
+  @media (orientation: landscape) and (max-height: 520px){
+    #chord{font-size:34px} #turn{font-size:16px;min-height:20px;margin-bottom:2px} #bar{font-size:12px} #note{font-size:18px;min-height:22px;margin-top:2px}
+    .ctl{gap:6px 8px}
+  }
 </style>
 </head>
 <body>
 <h1>Magenta improviser · I Fall in Love Too Easily</h1>
-<div class="sub">Magenta's ImprovRNN plays a solo line over the changes. Sa = E♭. <a href="./">← back to the chord coach</a></div>
+<div class="sub top">Magenta's ImprovRNN plays a solo line over the changes. Sa = E♭. <a href="./">← back to the chord coach</a></div>
 
+<div class="layout">
+<div class="stage">
+<div class="panel">
+  <div class="label">Now</div>
+  <div id="turn"></div>
+  <div id="chord">—</div>
+  <div id="bar"></div>
+  <div id="note"></div>
+</div>
+
+<div class="panel kbwrap">
+  <div id="kb"></div>
+</div>
+
+</div>
+<div class="side">
 <div class="row">
   <button id="load" class="go">Loading Magenta…</button>
   <button id="play" disabled>▶ Play</button>
@@ -85,16 +125,7 @@
   <span></span>
 </div>
 
-<div class="panel">
-  <div class="label">Now</div>
-  <div id="turn"></div>
-  <div id="chord">—</div>
-  <div id="bar"></div>
-  <div id="note"></div>
 </div>
-
-<div class="panel">
-  <div id="kb"></div>
 </div>
 
 <script src="magentamusic.js"></script>

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Chord Coach</title>
 <style>
   :root{--bg:#121214;--panel:#1d1d21;--text:#f2f0ea;--dim:#8e8b84;--accent:#f0b44c;--ok:#5fd38d;--bad:#e8664f;--white:#ecebe6;--black:#26262b;--want:#f7d58c}
@@ -40,21 +40,38 @@
   .legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;font-size:14px;color:var(--dim)}
   .legend i{display:inline-block;width:14px;height:14px;border-radius:3px;border:2px solid transparent;margin-right:6px;vertical-align:-2px}
   @media(max-width:700px){.grid{grid-template-columns:1fr}#target{font-size:48px}}
+
+  /* ---------- iPhone sideways: stage on the left, controls on the right ---------- */
+  body{padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right))}
+  @media (orientation: landscape) and (max-height: 520px){
+    body{max-width:none;padding-top:8px;padding-bottom:8px;height:100vh;overflow:hidden}
+    h1,.sub.top{display:none}
+    .layout{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:10px;height:calc(100vh - 16px)}
+    .stage{grid-column:1;grid-row:1;display:flex;flex-direction:column;gap:8px;min-height:0}
+    .side{grid-column:2;grid-row:1;overflow-y:auto;-webkit-overflow-scrolling:touch;min-height:0;padding-bottom:20px}
+    .panel{padding:10px 12px;margin-bottom:8px;border-radius:12px}
+    .stage .panel{margin:0}
+    .row{gap:6px;margin-bottom:8px}
+    button,select{padding:8px 10px;font-size:14px}
+    .chips{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px}
+    .chip{white-space:nowrap;padding:6px 10px;font-size:14px}
+    .legend{margin-top:4px;font-size:12px;gap:10px}
+    .stage svg{max-height:calc(100vh - 150px);width:auto;max-width:100%}
+    .stage .kbwrap{flex:1;min-height:0;display:flex;flex-direction:column;justify-content:center}
+  }
+  @media (orientation: landscape) and (max-height: 520px){
+    .grid{gap:8px} #target{font-size:40px} #targetNotes{font-size:17px;margin-top:4px} #targetWest{font-size:12px}
+    #feedback{font-size:15px;margin-top:4px;min-height:18px} #played{font-size:26px} #held{font-size:15px}
+    .stage .grid .panel{padding:8px 12px}
+  }
 </style>
 </head>
 <body>
 <h1>I Fall in Love Too Easily — chord coach</h1>
-<div class="sub">Sa = E♭ · shell voicings (root, 3rd, 7th) · ● = black key · <a href="improv.html" style="color:var(--accent)">Magenta improviser →</a></div>
+<div class="sub top">Sa = E♭ · shell voicings (root, 3rd, 7th) · ● = black key · <a href="improv.html" style="color:var(--accent)">Magenta improviser →</a></div>
 
-<div class="row">
-  <select id="dev"><option>No MIDI device yet</option></select>
-  <button id="restart">Restart song</button>
-  <button id="back">◀ Back</button>
-  <button id="skip">Skip ▶</button>
-  <button id="mic" class="go">🎤 Listen with microphone</button>
-  <span id="status">Connecting…</span>
-</div>
-
+<div class="layout">
+<div class="stage">
 <div class="grid">
   <div class="panel">
     <div class="label">Play this</div>
@@ -71,6 +88,26 @@
   </div>
 </div>
 
+<div class="panel kbwrap">
+  <div id="kb"></div>
+</div>
+
+</div>
+<div class="side">
+<div class="row">
+  <select id="dev"><option>No MIDI device yet</option></select>
+  <button id="restart">Restart song</button>
+  <button id="back">◀ Back</button>
+  <button id="skip">Skip ▶</button>
+  <button id="mic" class="go">🎤 Listen with microphone</button>
+  <span id="status">Connecting…</span>
+</div>
+
+<div class="panel">
+  <div class="label">The whole tune (tap any chord to jump there)</div>
+  <div id="chart"></div>
+</div>
+
 <div class="panel" id="micPanel" hidden>
   <div class="row" style="margin:0">
     <span class="label" style="margin:0">Mic level</span>
@@ -81,13 +118,7 @@
   <div class="sub" style="margin:8px 0 0">Mic mode: play the chord firmly and hold it for a second. Keep the room quiet and the iPad close to the keyboard speakers. If it never turns green, slide Strictness left.</div>
 </div>
 
-<div class="panel">
-  <div id="kb"></div>
 </div>
-
-<div class="panel">
-  <div class="label">The whole tune (tap any chord to jump there)</div>
-  <div id="chart"></div>
 </div>
 
 <script>
