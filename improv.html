@@ -125,6 +125,15 @@
   input[type=range]{width:100%;accent-color:var(--ink)}
   button.small{padding:6px 12px;font-size:13px}
   .note{font-size:12.5px;line-height:1.5;color:var(--dim);margin:0;max-width:60ch}
+  /* the painting: a still picture; only the keys change */
+  body.duo #kb{max-width:1000px;width:min(100%, calc((100vh - 300px) * 1.515))}
+  body.duo #kb canvas{display:block}
+  body.duo #note{display:none}
+  body.duo #bar{color:var(--char)}
+  body.duo .strip .bar.now.you{color:#c8302b} body.duo .duet.you span.y{color:#c8302b} body.duo .duet span.y::after{background:#c8302b}
+  body.duo .strip .bar.now.mag{color:var(--ink)} body.duo .duet.mag span.m{color:var(--ink)} body.duo .duet span.m::after{background:var(--ink)}
+  body.duo .strip .bar.done{color:var(--dim)}
+  @media (orientation: landscape) and (max-height: 520px){ body.duo #kb{width:min(100%, calc((100vh - 70px) * 1.515))} }
   /* the world: the keyboard is the floor of the screen; UI floats in the sky above the horizon */
   #world{display:none}
   body.world #world{display:block;position:fixed;inset:0;width:100vw;height:100vh;z-index:0}
@@ -261,7 +270,7 @@
 
 <script src="magentamusic.js"></script>
 <script src="rough.js"></script>
-<script src="world.js"></script>
+<script src="duo.js"></script>
 <!-- painted stage (p5.brush) is still in the lab: <script src="brush.js"></script><script src="stage.js"></script> -->
 <script src="seq.js"></script>
 <script>
@@ -1044,6 +1053,11 @@ function draw(){
   if (mode !== 'trade') $('bar').textContent = curChord ? [...curChord.pcs].map(sar).join(' · ') : '';
   $('note').textContent = curNote != null ? sar(curNote % 12) : '';
   renderStrip();
+  if (window.Duo && Duo.ok) {
+    Duo.update({you: [...youNow, ...chordHand].map(p => p % 12), mel: curNote == null ? -1 : curNote % 12,
+                magchord: [...compNow], tones: curChord ? [...curChord.pcs] : []});
+    return;
+  }
   if (window.World && World.ok) {
     World.update({you: [...youNow, ...chordHand].map(p => p % 12), mel: curNote == null ? -1 : curNote % 12,
                   magchord: [...compNow], tones: curChord ? [...curChord.pcs] : []});
@@ -1184,6 +1198,7 @@ function drawKeys(){
 // ---------- notes rise from the keys as ink marks: pink for you, blue for Magenta ----------
 const floaters = [];
 function spawnNote(p, who){
+  if (window.Duo && Duo.ok) return;                 // the painting stays still
   if (window.World && World.ok) { World.spawn(p % 12, who); return; }
   if (window.Stage && Stage.ok) { Stage.spawn(p % 12, who); return; }
   if (!gNotes || !rcKb) return;
@@ -1300,9 +1315,7 @@ function worldSource(){
           playing, still: reducedMotion, beat: beats - Math.floor(beats), bar: (beats % 4) / 4};
 }
 const sargamLabel = (pc, black) => black ? sar(pc).replace('komal ', 'k').replace('tivra ', 't') : sar(pc).replace('komal ', 'k ').replace('tivra ', 't ');
-if (window.World && World.init($('world'), {colors: {you: '#ff5fa2', mel: '#5aaeff', magchord: '#a9d2ff'}, label: sargamLabel, source: worldSource})) {
-  document.body.classList.add('world');
-}
+if (window.Duo && Duo.init($('kb'), {label: sargamLabel})) document.body.classList.add('duo');
 else if (window.Stage) Stage.init($('kb'), {
   colors: {you: css('--you'), mel: css('--mel'), magchord: css('--magchord')},
   label: (pc, black) => black ? sar(pc).replace('komal ', 'k').replace('tivra ', 't') : sar(pc).replace('komal ', 'k ').replace('tivra ', 't '),
