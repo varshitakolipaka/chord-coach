@@ -140,6 +140,7 @@
     <span></span>
   </div>
   <div class="row" style="margin:10px 0 0">
+    <label class="toggle"><input id="bassOn" type="checkbox"> Walking bass</label>
     <label class="toggle"><input id="bandOut" type="checkbox" checked> Bass on the keyboard</label>
     <button id="bandTest">Test bass</button>
   </div>
@@ -725,7 +726,7 @@ function bandTick(){
       if (ms > performance.now() - 20) drumHit(ms, inst, v * (0.9 + Math.random() * 0.2));
     });
     // bass: plan a chord's worth of notes when it starts
-    if (beat.first) {
+    if (beat.first && $('bassOn').checked) {
       const next = bandBeats[(n + beat.len) % bandBeats.length].c;
       bassLine(beat.c, next, beat.len).forEach(([b, p, d]) => {
         const ms = bandT0 + warp(n + b) * beatMs();
