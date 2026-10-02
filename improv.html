@@ -175,8 +175,8 @@
           <div class="chips" id="mode"><div class="chip on" data-m="trade">Take turns</div><div class="chip" data-m="solo">Magenta solos</div></div></div>
         <div class="field"><div class="fl">Your turn ends</div>
           <div class="chips" id="endMode"><div class="chip on" data-e="all">After every chord</div><div class="chip" data-e="pause">On a pause</div></div></div>
-        <div class="field"><div class="fl">Sound clue for your chord</div>
-          <div class="chips" id="cue"><div class="chip on" data-c="bass">Bass note</div><div class="chip" data-c="chord">Whole chord</div><div class="chip" data-c="both">Both</div><div class="chip" data-c="off">Off</div></div></div>
+        <div class="field"><div class="fl">While you look for the chord</div>
+          <div class="chips" id="cue"><div class="chip on" data-c="piano">Repeat it every 2 bars</div><div class="chip" data-c="off">Play it once</div></div></div>
         <label class="toggle"><input id="ting" type="checkbox" checked> Ting when you land the chord</label>
       </div>
     </details>
@@ -211,8 +211,8 @@
       <summary><span class="t">Casio sounds</span><span class="v" id="sum-tones"></span></summary>
       <div class="in stack">
         <div class="field"><div class="fl">Magenta's voice</div><div class="chips" id="tones-mel"></div></div>
-        <div class="field"><div class="fl">Atmosphere under the chord</div><div class="chips" id="tones-pad"></div></div>
-        <div class="ctl"><label for="padVol">Atmosphere volume</label><input id="padVol" type="range" min="0.2" max="1" step="0.05" value="0.6"><span></span></div>
+        <div class="field"><div class="fl">Chord sound (low piano, sustained)</div><div class="chips" id="tones-pad"></div></div>
+        <div class="ctl"><label for="padVol">Chord volume</label><input id="padVol" type="range" min="0.2" max="1" step="0.05" value="0.85"><span></span></div>
         <div class="field"><div class="fl">Chords the app plays</div><div class="chips" id="tones-comp"></div></div>
         <div class="field"><div class="fl">Bass</div><div class="chips" id="tones-bass"></div></div>
       </div>
@@ -311,10 +311,10 @@ const TONES = {
   mel:  [['Stage Piano',0],['Vibraphone',44],['Jazz Organ',22],['CZ Trumpet',53],['Tape Flute',35],['Stage E.Piano',10],['CZ Violin',54],['Saw Lead',39]],
   bass: [['Bass/Piano',9],['CZ Bass',52],['VZ Bass',59],['Stage Piano',0]],
   comp: [['Stage Piano',0],['Stage E.Piano',10],['Jazz Organ',22],['Strings',42],['Vibraphone',44],['Guitar Pad',43]],
-  pad:  [['Off',-1],['Strings',42],['Synth Pad',37],['Piano Pad',1],['Synth Strings',38],['Choir',41],['Sound Track',48]],
+  pad:  [['Off',-1],['Ballad piano',5],['Grand piano',3],['Stage piano',0],['Mellow piano',7],['Strings',42],['Synth pad',37]],
 };
-const pick = {mel: 44, bass: 9, comp: 10, pad: 42};
-const PICK_VERSION = 3;   // bump to reset saved tones when defaults change
+const pick = {mel: 44, bass: 9, comp: 10, pad: 5};
+const PICK_VERSION = 4;   // bump to reset saved tones when defaults change
 try { const saved = JSON.parse(localStorage.getItem('improv-tones')) || {}; if (saved.v === PICK_VERSION) Object.assign(pick, saved); } catch (e) {}
 function sendTones(){
   outs.forEach(o => { try { for (const part of ['mel','bass','comp','pad']) { if (pick[part] < 0) continue;
@@ -526,19 +526,12 @@ function chordStruck(){
   }
 }
 // ---- sound clue: when it's your turn on a chord, the Casio sounds it so you can find it by ear ----
-let cue = 'bass', lastCueAt = 0, cueChord = null;
+let cue = 'piano', lastCueAt = 0, cueChord = null;
 function playCue(c){
-  if (!c || cue === 'off' || !playing) return;
-  // land the clue on the next beat of the groove, never in between
-  const beat = Math.ceil(unwarp((performance.now() - t0) / beatMs()) + 0.05), at = t0 + warp(beat) * beatMs();
-  cueChord = c; lastCueAt = at;
-  const durMs = beatMs() * 2;
-  if ((cue === 'bass' || cue === 'both') && !$('bassOn').checked) {   // the bass line already plays the root
-    const root = 36 + ((c.root - 36) % 12 + 12) % 12;          // C2–B2: a low, bassy root
-    bassHit(at, root, durMs);
-    bassHit(at, root + 12, durMs * 0.9);                        // its octave, for a fuller bass
-  }
-  if (cue === 'chord' || cue === 'both') c.voicing.forEach(p => { midiAt(at, [0x90 | CH.comp, p, 48]); midiAt(at + durMs, [0x80 | CH.comp, p, 0]); });
+  if (!c || cue === 'off' || !playing || pick.pad < 0) return;
+  const at = nextBeatMs(); lastCueAt = at; cueChord = c;
+  if (at - lastStrikeAt < beatMs() * 1.5) return;      // just struck it
+  strikePad(c, at);
 }
 document.querySelectorAll('#cue .chip').forEach(el => el.onclick = () => {
   cue = el.dataset.c; document.querySelectorAll('#cue .chip').forEach(x => x.classList.toggle('on', x === el));
@@ -924,10 +917,10 @@ function summarise(){
   const on = id => { const el = document.querySelector('#' + id + ' .chip.on'); return el ? el.textContent : ''; };
   const pick1 = seqr.get();
   $('sum-seq').textContent = pick1 ? pick1.names.map(lettered).join(' → ') : 'Whole tune';
-  $('sum-game').textContent = on('mode') + ', turn ends ' + on('endMode').toLowerCase() + ', clue: ' + on('cue').toLowerCase();
+  $('sum-game').textContent = on('mode') + ', turn ends ' + on('endMode').toLowerCase();
   $('sum-mag').textContent = on('stick') + ', adventure ' + (+$('temp').value).toFixed(1) + ', answers ' + $('minV').textContent + '–' + $('maxV').textContent;
   $('sum-band').textContent = on('style') + ' at ' + $('tempo').value + ' bpm' + ($('bassOn').checked ? ', with bass' : '');
-  $('sum-tones').textContent = 'Magenta: ' + on('tones-mel') + ', atmosphere: ' + on('tones-pad');
+  $('sum-tones').textContent = 'Chords: ' + on('tones-pad') + ', Magenta: ' + on('tones-mel');
 }
 $('drawer').addEventListener('click', () => setTimeout(summarise, 0));
 $('drawer').addEventListener('input', () => setTimeout(summarise, 0));
@@ -949,7 +942,7 @@ $('play').onclick = async () => {
   startPass(performance.now() + 100);
 };
 function stop(){
-  padNotes.forEach(p => noteOff(p, CH.pad)); padNotes = []; padChord = null;
+  outs.forEach(o => { try { o.send([0xB0 | CH.pad, 64, 0]); } catch (e) {} }); padNotes.forEach(p => noteOff(p, CH.pad)); padNotes = []; padChord = null;
   stopBand(); document.body.classList.remove('playing');
   playing = false; clearInterval(timer); clearTimeout(nextPass); queue = [];
   token++; allOff(); curChord = null; curNote = null; pending = []; magSounding.clear(); youNow.clear(); chordHand.clear(); tingedAt = -1; compNow.clear(); compSounding.clear(); $('turn').textContent = ''; draw();
@@ -964,19 +957,30 @@ $('maxBars').oninput = () => { if (+$('maxBars').value < +$('minBars').value) $(
 $('temp').oninput = () => $('tempV').textContent = (+$('temp').value).toFixed(1);
 
 // ---------- Display: fixed one octave, Sa to Sa ----------
-// ---------- Atmosphere: a soft pad holding whatever chord is sounding ----------
+// ---------- The chord sound: low, bassy piano with the sustain pedal down, under whatever chord is sounding ----------
 let padChord = null, padNotes = [];
-function padVoicing(c){                     // all four chord tones, close together around G3–F#4
-  return [...c.tones].map(pc => 55 + ((pc - 55) % 12 + 12) % 12).sort((a, b) => a - b);
+function padVoicing(c){                     // root low (C2–B2), its octave, then the other chord tones just above
+  const r = 36 + ((c.root - 36) % 12 + 12) % 12;
+  const upper = [...c.tones].map(pc => (pc - c.root + 12) % 12).filter(i => i).map(i => r + 12 + i);
+  return [r, r + 12, ...upper];
+}
+const nextBeatMs = () => { const b = Math.ceil(unwarp((performance.now() - t0) / beatMs()) + 0.02); return t0 + warp(b) * beatMs(); };
+// lift the pedal, strike the new chord on the beat, put the pedal back down so it rings
+let lastStrikeAt = -1e9;
+function strikePad(c, at){
+  const ch = CH.pad, old = padNotes; lastStrikeAt = at;
+  midiAt(at - 15, [0xB0 | ch, 64, 0]);
+  old.forEach(p => midiAt(at - 10, [0x80 | ch, p, 0]));
+  padNotes = c ? padVoicing(c) : [];
+  padNotes.forEach((p, i) => midiAt(at, [0x90 | ch, p, i === 0 ? 84 : 66]));
+  if (c) midiAt(at + 20, [0xB0 | ch, 64, 127]);
 }
 function updatePad(){
   const want = playing && pick.pad >= 0 ? curChord : null;
   if (want === padChord) return;
-  padNotes.forEach(p => noteOff(p, CH.pad)); padNotes = [];
   padChord = want;
-  if (!want || !outs.length) return;
-  padNotes = padVoicing(want);
-  padNotes.forEach(p => outs.forEach(o => { try { o.send([0x90 | CH.pad, p, 52]); } catch (e) {} }));
+  if (!outs.length) return;
+  strikePad(want, want ? nextBeatMs() : performance.now());
 }
 const lettered = name => name.replace(/♭/g, 'b');
 // "B♭maj7/A♭" → big root, raised small flat, raised quality, small slash bass
