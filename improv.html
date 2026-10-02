@@ -132,8 +132,11 @@
     <div class="chip" data-st="bossa">Bossa nova</div>
   </div>
   <div class="ctl" style="margin-top:10px">
-    <label class="label" for="bandVol" style="margin:0">Band volume</label>
+    <label class="label" for="bandVol" style="margin:0">Drums volume</label>
     <input id="bandVol" type="range" min="0" max="1.5" step="0.05" value="0.8">
+    <span></span>
+    <label class="label" for="bassVol" style="margin:0">Bass volume</label>
+    <input id="bassVol" type="range" min="0.3" max="1" step="0.05" value="1">
     <span></span>
   </div>
   <div class="row" style="margin:10px 0 0">
@@ -253,20 +256,22 @@ function allOff(){ outs.forEach(o => { try { for (let c = 0; c < 16; c++) o.send
 // ---------- Casio tones for each part (CT-S1 tone list: bank 2, program = tone number - 1) ----------
 const TONES = {
   mel:  [['Stage Piano',0],['Vibraphone',44],['Jazz Organ',22],['CZ Trumpet',53],['Tape Flute',35],['Stage E.Piano',10],['CZ Violin',54],['Saw Lead',39]],
-  bass: [['CZ Bass',52],['VZ Bass',59],['Bass/Piano',9],['Stage Piano',0]],
+  bass: [['Bass/Piano',9],['CZ Bass',52],['VZ Bass',59],['Stage Piano',0]],
   comp: [['Stage Piano',0],['Stage E.Piano',10],['Jazz Organ',22],['Strings',42],['Vibraphone',44],['Guitar Pad',43]],
 };
-const pick = {mel: 44, bass: 52, comp: 10};
-try { Object.assign(pick, JSON.parse(localStorage.getItem('improv-tones')) || {}); } catch (e) {}
+const pick = {mel: 44, bass: 9, comp: 10};
+const PICK_VERSION = 2;   // bump to reset saved tones when defaults change
+try { const saved = JSON.parse(localStorage.getItem('improv-tones')) || {}; if (saved.v === PICK_VERSION) Object.assign(pick, saved); } catch (e) {}
 function sendTones(){
   outs.forEach(o => { try { for (const part of ['mel','bass','comp']) {
-    const c = CH[part]; o.send([0xB0 | c, 0, 2]); o.send([0xB0 | c, 32, 0]); o.send([0xC0 | c, pick[part]]); } } catch (e) {} });
+    const c = CH[part]; o.send([0xB0 | c, 0, 2]); o.send([0xB0 | c, 32, 0]); o.send([0xC0 | c, pick[part]]);
+    o.send([0xB0 | c, 7, part === 'bass' ? Math.round(127 * +$('bassVol').value) : part === 'comp' ? 90 : 110]); o.send([0xB0 | c, 11, 127]); } } catch (e) {} });
 }
 function renderTones(){
   for (const part of ['mel','bass','comp']) {
     $('tones-' + part).innerHTML = TONES[part].map(([n, pc]) => `<div class="chip${pick[part] === pc ? ' on' : ''}" data-pc="${pc}">${n}</div>`).join('');
     $('tones-' + part).querySelectorAll('.chip').forEach(el => el.onclick = () => {
-      pick[part] = +el.dataset.pc; try { localStorage.setItem('improv-tones', JSON.stringify(pick)); } catch (e) {}
+      pick[part] = +el.dataset.pc; try { localStorage.setItem('improv-tones', JSON.stringify({...pick, v: PICK_VERSION})); } catch (e) {}
       renderTones(); sendTones();
       if (part !== 'bass') { const p = part === 'mel' ? 72 : 60; noteOn(p, 80, 0.4, CH[part]); setTimeout(() => noteOff(p, CH[part]), 400); }
       else { bassHit(performance.now(), 43, 400); }
@@ -644,7 +649,7 @@ function drumHit(ms, inst, v){              // the CT-S1 has no drum kit, so dru
   if (actx) DRUM[inst](Math.max(actx.currentTime, toAudio(ms)), v);
 }
 function bassHit(ms, midi, durMs){
-  if (toKeys()) { midiAt(ms, [0x90 | CH.bass, midi, 92]); midiAt(ms + durMs * 0.92, [0x80 | CH.bass, midi, 0]); return; }
+  if (toKeys()) { midiAt(ms, [0x90 | CH.bass, midi, 120]); midiAt(ms + durMs * 0.92, [0x80 | CH.bass, midi, 0]); return; }
   if (!actx) return;
   bassNote(Math.max(actx.currentTime, toAudio(ms)), midi, durMs / 1000);
 }
@@ -670,8 +675,8 @@ const PATTERNS = {
 };
 
 // ---- walking bass: root on the downbeat, chord tones in between, a half-step into the next chord ----
-let bassLast = 43;
-function nearestOct(pc, near){ let p = 36 + ((pc - 36) % 12 + 12) % 12; while (p + 12 <= 57 && Math.abs(p + 12 - near) < Math.abs(p - near)) p += 12; return p; }
+let bassLast = 46;
+function nearestOct(pc, near){ let p = 40 + ((pc - 40) % 12 + 12) % 12; while (p + 12 <= 60 && Math.abs(p + 12 - near) < Math.abs(p - near)) p += 12; return p; }
 function bassLine(c, next, beats){
   const r = nearestOct(c.root, bassLast), tones = [...c.tones].map(pc => (pc - c.root + 12) % 12).sort((a, b) => a - b);
   const nextRoot = nearestOct(next.root, r);
@@ -688,7 +693,7 @@ function bassLine(c, next, beats){
     else if (b + step >= beats) p = nextRoot + (Math.random() < 0.5 ? 1 : -1);   // chromatic approach
     else {                                       // a chord tone that isn't the note we just played
       const prev = out.length ? out[out.length - 1][1] : r;
-      const opts = tones.slice(1).map(i => { let q = r + i; if (q > 57) q -= 12; return q; }).filter(q => q !== prev);
+      const opts = tones.slice(1).map(i => { let q = r + i; if (q > 60) q -= 12; return q; }).filter(q => q !== prev);
       p = opts[Math.floor(Math.random() * opts.length)];
     }
     out.push([b, p, step * 0.95]);
@@ -704,7 +709,7 @@ function startBand(t0ms){
   if (style === 'none' || (!audioReady() && !toKeys())) return;
   bassTone();
   bandBeats = []; section().forEach(c => { for (let i = 0; i < c.beats; i++) bandBeats.push({c, first: i === 0, len: c.beats}); });
-  bandT0 = t0ms; bandNext = 0; bassLast = 43;
+  bandT0 = t0ms; bandNext = 0; bassLast = 46;
   bandTimer = setInterval(bandTick, 25); bandTick();
 }
 function stopBand(){ clearInterval(bandTimer); bandTimer = null; }
@@ -735,6 +740,7 @@ document.querySelectorAll('#style .chip').forEach(el => el.onclick = () => {
   if (playing) restart();
 });
 $('bandVol').oninput = () => { if (bandBus) bandBus.gain.value = +$('bandVol').value; };
+$('bassVol').oninput = () => sendTones();
 
 renderTones();
 $('play').onclick = async () => {
