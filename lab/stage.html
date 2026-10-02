@@ -1,0 +1,33 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Painted stage test</title>
+<style>
+  @font-face{font-family:'Instrument Serif';font-style:italic;src:url(../fonts/instrument-serif-latin-400-italic.woff2) format('woff2')}
+  body{margin:0;background:#efe8da;font-family:system-ui;color:#17161a;padding:12px}
+  #kb{max-width:900px;margin:0 auto} #kb .stagebox{position:relative;width:min(100%, calc((100vh - 120px) * 1.4));margin:0 auto}
+  #log{font-size:12px;color:#7d776b;white-space:pre-wrap}
+</style></head><body>
+<div id="log">Painting…</div>
+<div id="kb"></div>
+<script src="../brush.js"></script>
+<script src="../stage.js"></script>
+<script>
+const SARGAM = ['Sa','komal Re','Re','komal Ga','Ga','Ma','tivra Ma','Pa','komal Dha','Dha','komal Ni','Ni'];
+const sar = pc => SARGAM[(pc - 3 + 12) % 12];
+const log = m => document.getElementById('log').textContent += '\n' + m;
+window.addEventListener('error', e => log('Error: ' + e.message));
+let tStart = performance.now(), you = [5, 8], mel = -1, step = 0;
+const ok = Stage.init(document.getElementById('kb'), {
+  colors: {you: '#d8417f', mel: '#2f6fb5', magchord: '#86aedb'},
+  label: (pc, black) => black ? sar(pc).replace('komal ', 'k').replace('tivra ', 't') : sar(pc).replace('komal ', 'k ').replace('tivra ', 't '),
+  source: () => { const b = (performance.now() - tStart) / 600; const mag = Math.floor(b / 8) % 2 === 1;
+    return {leftU: 0.35, rightU: mag ? 0.55 + 0.15 * Math.sin(b) : 0.7, pressL: true, pressR: true, color: mag ? '#2f6fb5' : '#d8417f',
+            playing: true, still: false, beat: b % 1, bar: (b % 4) / 4}; },
+});
+log(ok ? 'Painted in ' + Math.round(performance.now() - tStart) + ' ms' : 'Painted stage not available on this device');
+if (ok) {
+  Stage.update({you, mel, magchord: [], tones: [5, 8, 3]});
+  setInterval(() => { step++; const pcs = [5, 8, 3, 10, 0, 7]; const pc = pcs[step % pcs.length];
+    if (step % 16 < 8) Stage.update({you: [5, 8, pc], mel: -1, magchord: [], tones: [5, 8, 3]}), Stage.spawn(pc, 'you');
+    else Stage.update({you: [], mel: pc, magchord: [5, 8, 3], tones: [5, 8, 3]}), Stage.spawn(pc, 'mag'); }, 600);
+}
+</script></body></html>

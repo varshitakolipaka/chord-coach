@@ -1029,7 +1029,7 @@ const KB = {VW: 900, top: -300, VH: 640, far: 22, near: 318, wFar: 0.66, blackLe
 const NS = 'http://www.w3.org/2000/svg';
 function kbPoint(u, v){                      // u: 0..1 across, v: 0 (far) .. 1 (near)
   const w = KB.VW * (KB.wFar + (1 - KB.wFar) * v) * 0.97;
-  return [KB.VW / 2 + (u - 0.5) * w, KB.far + (KB.near - KB.far) * Math.pow(v, 0.92)];
+  return [KB.VW / 2 + (u - 0.5) * w, KB.far + (KB.near - KB.far) * Math.sign(v) * Math.pow(Math.abs(v), 0.92)];
 }
 function quad(u0, u1, v0, v1){ return [kbPoint(u0, v0), kbPoint(u1, v0), kbPoint(u1, v1), kbPoint(u0, v1)]; }
 const css = v => getComputedStyle(document.body).getPropertyValue(v).trim();

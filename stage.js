@@ -14,7 +14,7 @@
 
   const kbPoint = (u, v) => {
     const w = W * (KB.wFar + (1 - KB.wFar) * v) * 0.97;
-    return [W / 2 + (u - 0.5) * w, KB.far + (KB.near - KB.far) * Math.pow(v, 0.92)];
+    return [W / 2 + (u - 0.5) * w, KB.far + (KB.near - KB.far) * Math.sign(v) * Math.pow(Math.abs(v), 0.92)];
   };
   const quad = (u0, u1, v0, v1) => [kbPoint(u0, v0), kbPoint(u1, v0), kbPoint(u1, v1), kbPoint(u0, v1)];
   const KEYS = (() => {                     // E♭4..E♭5: 7 whites with half a black key off each end
@@ -36,7 +36,7 @@
 
   // ---------- painting on one hidden WebGL canvas ----------
   let work = null, density = 1;
-  function startPaint(seed){ brush.load(work); brush.clear(); brush.push(); brush.translate(-W / 2, -H / 2); brush.seed(seed); }
+  function startPaint(seed){ brush.clear(); const gl = work.getContext('webgl2'); gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT); brush.push(); brush.translate(-W / 2, -H / 2); brush.seed(seed); }
   function endPaint(){ brush.pop(); brush.render(); }
   // copy a logical rectangle of the work canvas into a new 2D canvas
   function grab(x, y, w, h){
@@ -50,7 +50,7 @@
   function paintShape(poly, base, tint, opts = {}){
     brush.noStroke(); brush.noHatch();
     brush.wash(base, opts.washA ?? 235); brush.polygon(poly); brush.noWash();
-    if (tint) { brush.fill(tint, opts.tintA ?? 110); brush.fillBleed(opts.bleed ?? 0.12); brush.fillTexture(opts.tex ?? 0.45, opts.border ?? 0.4, false); brush.polygon(poly); brush.noFill(); }
+    if (tint) { brush.fill(tint, opts.tintA ?? 110); brush.fillBleed(opts.bleed ?? 0.02, 'in'); brush.fillTexture(opts.tex ?? 0.45, opts.border ?? 0.15, false); brush.polygon(poly); brush.noFill(); }
     if (opts.outline !== false) { brush.set(opts.pen || 'charcoal', INK, opts.penW ?? 1.25); brush.polygon(poly); }
   }
   const ellipsePoly = (cx, cy, rx, ry, n = 28) => Array.from({length: n}, (_, i) => [cx + rx * Math.cos(i / n * Math.PI * 2), cy + ry * Math.sin(i / n * Math.PI * 2)]);
@@ -105,7 +105,8 @@
     const id = k.n + kind + color; if (washCache.has(id)) return washCache.get(id);
     startPaint(100 + k.n);
     const poly = keyPoly(k);
-    if (kind === 'lit') paintShape(poly, color, color, {washA: 215, tintA: 150, bleed: 0.2, tex: 0.6, border: 0.6, penW: 1.3});
+    if (kind === 'lit') paintShape(poly, color, color, {washA: 215, tintA: 150, bleed: 0.12, tex: 0.6, border: 0.5, penW: 1.3});
+    else if (kind === 'base') paintShape(poly, INK, '#2b2a33', {tintA: 120, tex: 0.6, penW: 1.2});
     else {                                     // the chord's notes: an ochre marker stroke near the front of the key
       const v = BLACK.has(k.pc) ? KB.blackLen - 0.1 : 0.95;
       brush.set('marker', OCHRE, 2.2); brush.line(...kbPoint(k.u0 + 0.02, v), ...kbPoint(k.u1 - 0.02, v));
@@ -202,11 +203,13 @@
     const all = [...KEYS.whites, ...KEYS.blacks];
     const colorOf = pc => s.you.includes(pc) ? Stage.opts.colors.you : s.mel === pc ? Stage.opts.colors.mel : s.magchord.includes(pc) ? Stage.opts.colors.magchord : null;
     // whites first, then black keys (which sit on top)
-    [KEYS.whites, KEYS.blacks].forEach(group => group.forEach(k => {
+    KEYS.whites.forEach(k => { const c = colorOf(k.pc); if (c) draw(keyWash(k, c, 'lit')); else if (s.tones.includes(k.pc)) draw(keyWash(k, OCHRE, 'tone')); });
+    const whiteLit = KEYS.whites.some(k => colorOf(k.pc));
+    KEYS.blacks.forEach(k => {               // black keys sit on top of any white-key wash
       const c = colorOf(k.pc);
       if (c) draw(keyWash(k, c, 'lit'));
-      else if (s.tones.includes(k.pc)) draw(keyWash(k, OCHRE, 'tone'));
-    }));
+      else { if (whiteLit) draw(keyWash(k, INK, 'base')); if (s.tones.includes(k.pc)) draw(keyWash(k, OCHRE, 'tone')); }
+    });
     if (s.drawBlacksOver) {}
     // labels in Instrument Serif italic
     let h = '';
