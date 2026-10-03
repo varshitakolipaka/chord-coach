@@ -229,6 +229,10 @@
     <details class="grp">
       <summary><span class="t">Magenta</span><span class="v" id="sum-mag"></span></summary>
       <div class="in stack">
+        <div class="field"><div class="fl">Brain</div>
+          <div class="chips" id="brain"><div class="chip on" data-b="magenta">Magenta (in this browser)</div><div class="chip" data-b="stanford">Stanford (on my Mac)</div></div>
+          <div class="row" id="brainRow" style="display:none"><input id="brainUrl" type="url" spellcheck="false" style="flex:1;min-width:0;font:inherit;font-size:13px;padding:7px 10px;border:1.5px solid var(--line);border-radius:10px;background:#fffaf0" value="http://localhost:8721"><button class="small" id="brainTest">Test</button></div>
+          <div class="note" id="brainStatus"></div></div>
         <div class="field"><div class="fl">Its notes</div>
           <div class="chips" id="stick"><div class="chip" data-s="free">Free</div><div class="chip on" data-s="around">Around the chord</div><div class="chip" data-s="tones">Chord tones only</div></div></div>
         <div class="ctl">
@@ -269,7 +273,7 @@
         <label class="toggle"><input id="comp" type="checkbox" checked> App plays the chords in pause mode</label>
         <label class="toggle"><input id="local" type="checkbox"> Also sound notes on this device</label>
         <p class="note">Left hand below middle C plays the chords; right hand plays the melody. Drums come from this device's speaker.</p>
-        <p class="note">Drums: Jazz and Brush kits from the FluidR3 GM soundfont by Frank Wen (MIT). Type: Fraunces (Undercase Type, SIL OFL). Pictures: a risograph print and an oil painting (after the Kalighat bazaar paintings of 19th-century Calcutta), both made in code. Melodies: Magenta ImprovRNN (Google, Apache 2.0).</p>
+        <p class="note">Drums: Jazz and Brush kits from the FluidR3 GM soundfont by Frank Wen (MIT). Type: Fraunces (Undercase Type, SIL OFL). Pictures: a risograph print and an oil painting (after the Kalighat bazaar paintings of 19th-century Calcutta), both made in code. Melodies: Magenta ImprovRNN (Google, Apache 2.0), or optionally Stanford's Anticipatory Music Transformer (Thickstun, Hall, Donahue, Liang; Apache 2.0) served from your Mac.</p>
       </div>
     </details>
   </div>
@@ -841,7 +845,39 @@ function barTick(k){
     showTurn();
   }
   // beat 3 of your bar: Magenta starts composing its answer from what you've played so far
-  if (who === 'you' && !barTurn.planned && inBar >= 8) { barTurn.planned = true; barTurn.plan = planBar((b + 1) * BAR); }
+  if (who === 'you' && !barTurn.planned && inBar >= (brain === 'stanford' ? 6 : 8)) { barTurn.planned = true; barTurn.plan = planBar((b + 1) * BAR); }
+}
+// ---- Magenta's brain: the built-in Magenta model, or Stanford's Anticipatory Music Transformer served from your Mac ----
+let brain = 'magenta', brainUrl = 'http://localhost:8721';
+try { const b = JSON.parse(localStorage.getItem('improv-brain')) || {}; brain = b.brain || brain; brainUrl = b.url || brainUrl; } catch (e) {}
+const saveBrain = () => { try { localStorage.setItem('improv-brain', JSON.stringify({brain, url: brainUrl})); } catch (e) {} };
+function showBrain(){
+  document.querySelectorAll('#brain .chip').forEach(x => x.classList.toggle('on', x.dataset.b === brain));
+  $('brainRow').style.display = brain === 'stanford' ? 'flex' : 'none'; $('brainUrl').value = brainUrl;
+  if (brain !== 'stanford') $('brainStatus').textContent = '';
+}
+async function testBrain(){
+  $('brainStatus').textContent = 'Knocking on ' + brainUrl + ' …';
+  try { const r = await fetch(brainUrl.replace(/\/$/, '') + '/health', {signal: AbortSignal.timeout(4000)}); const j = await r.json();
+    $('brainStatus').textContent = 'Connected: ' + j.model.replace('stanford-crfm/', '') + ' on ' + j.device + '.'; return true; }
+  catch (e) { $('brainStatus').textContent = 'Can’t reach it. Is the server running on your Mac? (Magenta’s own brain will answer meanwhile.)'; return false; }
+}
+document.querySelectorAll('#brain .chip').forEach(el => el.onclick = () => { brain = el.dataset.b; saveBrain(); showBrain(); summarise(); if (brain === 'stanford') testBrain(); });
+$('brainUrl').onchange = () => { brainUrl = $('brainUrl').value.trim() || 'http://localhost:8721'; saveBrain(); testBrain(); };
+$('brainTest').onclick = testBrain;
+showBrain();
+// ask the Stanford server for one bar; times go as seconds relative to the start of the answer
+async function stanfordBar(ansStart, c, budgetMs){
+  const sec = st => (stepToMs(st) - stepToMs(ansStart)) / 1000;
+  const history = phrase.filter(n => n.on >= ansStart - 2 * BAR).map(n => ({p: n.p, t: sec(n.on), d: Math.max(0.05, sec(n.off ?? stepPos()) - sec(n.on))}));
+  const len = sec(ansStart + BAR);
+  const chord = c.voicing.slice();
+  const r = await fetch(brainUrl.replace(/\/$/, '') + '/bar', {method: 'POST', headers: {'Content-Type': 'application/json'}, signal: AbortSignal.timeout(budgetMs + 400),
+    body: JSON.stringify({history, chord, length: len, budget_ms: Math.max(150, budgetMs), temperature: +$('temp').value, low: 60, high: 86})});
+  const j = await r.json(); if (!j.notes) throw new Error(j.error || 'no notes');
+  // back to the step grid (on the swung clock), rounded to the nearest half step
+  const toStep = t => Math.round(2 * (unwarp((stepToMs(ansStart) + t * 1000) / beatMs()) * SPQ - ansStart)) / 2;
+  return j.notes.map(n => ({pitch: n.p, s: Math.max(0, toStep(n.t)), e: Math.min(BAR, Math.max(toStep(n.t) + 0.5, toStep(n.t + n.d)))})).filter(n => n.s < BAR);
 }
 async function planBar(ansStart){
   const my = token, c = curChord, now = stepPos();
@@ -851,6 +887,14 @@ async function planBar(ansStart){
       return {pitch: fitRange(n.p), quantizedStartStep: s0, quantizedEndStep: e0}; }), totalQuantizedSteps: L, quantizationInfo: {stepsPerQuarter: SPQ}};
   if (!seed.notes.length) seed.notes = [{pitch: fitRange(60 + c.root % 12), quantizedStartStep: 0, quantizedEndStep: 4}];
   const prog = Array(L + BAR).fill(c.mm);
+  if (brain === 'stanford') {
+    try {
+      const budget = Math.max(150, stepToMs(ansStart) - (performance.now() - t0) - 120);
+      const cand = await stanfordBar(ansStart, c, budget);
+      if (my !== token) return null;
+      if (cand.length) return {c, notes: shape(cand, () => c), by: 'stanford'};
+    } catch (e) { console.warn('Stanford brain unavailable, Magenta answers', e); }
+  }
   try {
     const out = await rnn.continueSequence(seed, BAR, +$('temp').value, prog);
     if (my !== token) return null;
@@ -1113,7 +1157,7 @@ function summarise(){
   const pick1 = seqr.get();
   $('sum-seq').textContent = pick1 ? pick1.names.map(lettered).join(' → ') : 'Whole tune';
   $('sum-game').textContent = on('mode') + ' · ' + on('endMode');
-  $('sum-mag').textContent = on('stick') + ', adventure ' + (+$('temp').value).toFixed(1) + ', answers ' + $('minV').textContent + '–' + $('maxV').textContent;
+  $('sum-mag').textContent = (brain === 'stanford' ? 'Stanford brain, ' : '') + on('stick') + ', adventure ' + (+$('temp').value).toFixed(1) + ', answers ' + $('minV').textContent + '–' + $('maxV').textContent;
   $('sum-band').textContent = on('style') + ' at ' + $('tempo').value + ' bpm' + ($('bassOn').checked ? ', with bass' : '');
   $('sum-tones').textContent = 'Chords: ' + on('tones-pad') + ', Magenta: ' + on('tones-mel');
   $('sum-look').textContent = on('look');
