@@ -108,7 +108,7 @@
   // marks laid on the keys while notes sound
   function markKeys(c, kind, keys, P){
     const {fill, shade, calli, streaks, clipTo} = P;
-    const col = {you: [VERM, VERM_DK, '#ec6a4a'], mel: [ULTRA, '#141d4a', '#5368b8'], mc: [ULTRA_LT, '#56679c', '#c3cde6'], tone: null}[kind];
+    const col = {you: [ULTRA, '#141d4a', '#5368b8'], got: ['#3f8f4e', '#1d4a26', '#6cbf7a'], target: [TURMERIC, '#a8730f', '#f6cd6a'], mel: ['#d6336c', '#7a1236', '#ef6c98'], mc: ['#e9a3bf', '#b05c7e', '#f6c9da']}[kind];
     keys.forEach(k => {
       const q = k.black ? [[k.x0, k.y0 - 4], [k.x1, k.y0 - 4], [k.x1, k.y1], [k.x0, k.y1]] : k.poly;
       if (col) {
@@ -126,7 +126,7 @@
   }
 
   function label(k, kind){
-    const lit = kind === 'you' || kind === 'mel';
+    const lit = kind === 'you' || kind === 'mel' || kind === 'got';
     return k.black
       ? {font: `700 17px Fraunces, Georgia, serif`, size: 17, y: k.y1 - 16, color: lit ? '#fff6e6' : '#d9ccb0', mark: 2}
       : {font: `800 23px Fraunces, Georgia, serif`, size: 23, y: k.y1 - 12, color: lit ? '#fff6e6' : INK, mark: 2.6};
@@ -260,7 +260,7 @@
   const cat = {floor: 336, thick: 112, restLen: 300, pad: 46, minLen: 250, headIn: 34, headDrop: 26, legW: 36, tailW: 28,
     eyes: pieces.head.eyes, pupil: '#140c06', pieces};
 
-  Duo.register({id: 'kalighat', name: 'Kalighat, in oils', seed: 11, KB, paint, after, markKeys, label, cat,
+  Duo.register({id: 'kalighat', name: 'Kalighat, in oils', seed: 11, KB, paint, after, markKeys, label, cat, display: {x: 708, y: 60, w: 256, h: 128, panel: 'engine'},
     painter: {radii: [16, 8, 4, 2.6], threshold: 18},
     alt: 'An oil painting of a practice desk seen from above: a red Casio keyboard, chai, a pencil and a lead sheet, with a long squishy tabby cat on the keyboard pressing keys with legs that drop straight down'});
 })();

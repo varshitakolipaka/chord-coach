@@ -133,8 +133,16 @@
   button.small{padding:6px 12px;font-size:13px}
   .note{font-size:12.5px;line-height:1.5;color:var(--dim);margin:0;max-width:60ch}
   /* the painting: a still picture; only the keys change */
-  body.duo #kb{max-width:1000px;width:min(100%, calc((100vh - 380px) * 1.43))}
   @media (orientation: portrait){ body.duo .stage{justify-content:space-evenly} body.duo #chord{font-size:min(30vw,168px)} }
+  /* the painting is the interface: chord, notes and turn all live inside it */
+  body.duo .lead{display:none}
+  body.duo #kb{max-width:1100px;width:min(100%, calc((100vh - 150px) * 1.43))}
+  @media (orientation: landscape) and (max-height: 520px){ body.duo #kb{width:min(100%, calc((100vh - 84px) * 1.43))} }
+  /* you are blue, Magenta (the cat) is magenta pink */
+  body.duo .strip .bar.now.you{background:#0f6fbf;color:#fff7ee} body.duo .strip .bar.now.mag,body.duo .strip .bar.now:not(.you){background:#ff4fa8;color:#fff7ee}
+  body.duo .duet.you span.y{color:#0f6fbf} body.duo .duet span.y::after{background:#0f6fbf}
+  body.duo .duet.mag span.m{color:#e2338f} body.duo .duet span.m::after{background:#e2338f}
+  body.duo .strip .bar.done::after{color:#0f6fbf}
   /* whose turn it is: impossible to miss */
   #turnBig{display:flex;flex-direction:column;align-items:center;gap:5px;margin-bottom:12px;min-height:58px}
   #turnBig .tb-who{font-family:'Fraunces',Georgia,serif;font-variation-settings:"SOFT" 100,"opsz" 72;font-weight:900;font-size:27px;line-height:1;padding:8px 20px 10px;border-radius:999px;color:#fff7ee;background:var(--ink);visibility:hidden}
@@ -146,19 +154,16 @@
   @keyframes nudge{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
   @media (prefers-reduced-motion: reduce){body.turn-you #turnBig .tb-who{animation:none}}
   body.duo #kb > div{border-radius:8px;transition:box-shadow .25s}
-  body.turn-you.playing #kb > div{box-shadow:0 0 0 6px var(--turn,#d8417f)}
-  body.turn-mag.playing #kb > div,body.turn-think.playing #kb > div{box-shadow:0 0 0 6px #0f6fbf}
   @media (orientation: landscape) and (max-height: 520px){ #turnBig{margin-bottom:8px;min-height:48px} #turnBig .tb-who{font-size:21px;padding:6px 14px 8px} #turnBig .tb-sub{font-size:12px} }
   /* Riso: cream stock, fluorescent pink for you, misregistered headline */
-  body.skin-riso{--turn:#ff4fa8;--paper:#efe6d2;--ink:#1e1b1d;--red:#ff4fa8;--dim:#958b78;--line:#d9ccb2;background:#efe6d2}
+  body.skin-riso{--turn:#0f6fbf;--paper:#efe6d2;--ink:#1e1b1d;--red:#ff4fa8;--dim:#958b78;--line:#d9ccb2;background:#efe6d2}
   body.skin-riso #chord{text-shadow:.045em .03em 0 rgba(255,79,168,.75),-.03em -.02em 0 rgba(15,111,191,.45)}
-  body.skin-riso .strip .bar.now{background:#0f6fbf;color:#fff7ee} body.skin-riso .strip .bar.now.you{background:#ff4fa8}
   body.skin-riso #bar .sw{box-shadow:inset 0 0 0 2px var(--ink),3px 3px 0 #ffcd2e}
   /* Kalighat: buff mill paper, lamp black, vermilion */
   body.skin-kalighat{--turn:#cf3a22;--paper:#efe2c4;--ink:#15110e;--red:#cf3a22;--dim:#8a7f69;--line:#d4c39f;
     background:radial-gradient(120% 90% at 50% 35%,#f4e9cf 0%,#efe2c4 55%,#e2d0a8 100%) fixed #efe2c4}
   body.duo #kb canvas{display:block}
-  @media (orientation: landscape) and (max-height: 520px){ body.duo #kb{flex:0 1 auto;width:min(66vw, calc((100vh - 100px) * 1.43))} body.duo .lead{flex:1 1 0} #streak{left:max(18px,env(safe-area-inset-left));right:auto} }
+  @media (orientation: landscape) and (max-height: 520px){ body.duo #kb{flex:0 1 auto;width:min(100%, calc((100vh - 84px) * 1.43))} #streak{left:max(18px,env(safe-area-inset-left));right:auto} }
   /* narrow phones: keep the top bar on one line */
   @media (max-width: 480px){
     .top{gap:6px;padding-left:12px;padding-right:8px} .duet{font-size:17px} .duet span{padding:2px 6px}
@@ -551,9 +556,13 @@ function chordStartStep(){                          // step where the current ch
   while (k > 0 && !gridStart[((k % grid.length) + grid.length) % grid.length]) k--;
   return k;
 }
+// In the "play every chord" game you have to play every note of the chord (any octave, either hand, held or
+// one after another); the notes you've covered stay lit until the chord moves on.
+let covered = new Set();
 function chordComplete(){
   if (!curChord) return false;
   const held = new Set([...chordHand, ...youNow].map(p => p % 12));
+  if (endMode === 'all') return [...curChord.tones].every(pc => held.has(pc) || covered.has(pc));
   return [...curChord.pcs].every(pc => held.has(pc));
 }
 let streak = 0;
@@ -570,7 +579,7 @@ function chordStruck(){
   // "Play every chord" game: the harmony waits for you, and your turn ends after the last chord
   if (endMode === 'all' && (phase === 'you' || phase === 'listen')) {
     if (phase === 'listen') { phase = 'you'; phrase = []; }
-    if (gi < seqList.length - 1) { gi++; curChord = seqList[gi]; changes.push({step: Math.floor(stepPos()), c: curChord}); setTimeout(() => playCue(curChord), 250); }
+    if (gi < seqList.length - 1) { gi++; curChord = seqList[gi]; covered = new Set(); changes.push({step: Math.floor(stepPos()), c: curChord}); setTimeout(() => playCue(curChord), 250); }
     else { streak++; showStreak(); answerAll(); }
   }
 }
@@ -588,7 +597,7 @@ document.querySelectorAll('#cue .chip').forEach(el => el.onclick = () => {
 // ---- gated mode state ----
 let seqList = [], gi = 0, changes = [], compNow = new Set(), compSounding = new Set();
 function resetToYou(){
-  gi = 0; curChord = seqList[0]; changes = [{step: Math.max(0, Math.floor(stepPos())), c: curChord}];
+  gi = 0; curChord = seqList[0]; covered = new Set(); changes = [{step: Math.max(0, Math.floor(stepPos())), c: curChord}];
   setTimeout(() => { if (endMode === 'all' && (phase === 'listen' || phase === 'you')) playCue(curChord); }, 400);
   compSounding.forEach(p => noteOff(p, CH.comp)); compSounding.clear(); compNow.clear();
 }
@@ -653,6 +662,7 @@ function onIn(e){
   if (!on && !off) return;
   if (on) lastYouAt = performance.now();
   const was = chordComplete();
+  if (on && endMode === 'all' && curChord && phase !== 'answer' && phase !== 'think' && curChord.tones.has(p % 12)) covered.add(p % 12);
   if (p < SPLIT) {                                  // chord hand: never counts as your phrase
     if (on) chordHand.add(p); else chordHand.delete(p);
   } else if (on) {
@@ -1012,7 +1022,7 @@ function stop(){
   outs.forEach(o => { try { o.send([0xB0 | CH.pad, 64, 0]); } catch (e) {} }); padNotes.forEach(p => noteOff(p, CH.pad)); padNotes = []; padChord = null;
   stopBand(); document.body.classList.remove('playing', 'turn-you', 'turn-mag', 'turn-think');
   playing = false; clearInterval(timer); clearTimeout(nextPass); queue = [];
-  token++; allOff(); curChord = null; curNote = null; pending = []; magSounding.clear(); youNow.clear(); chordHand.clear(); tingedAt = -1; compNow.clear(); compSounding.clear(); $('turn').textContent = ''; draw();
+  token++; allOff(); curChord = null; curNote = null; pending = []; magSounding.clear(); youNow.clear(); chordHand.clear(); covered = new Set(); tingedAt = -1; compNow.clear(); compSounding.clear(); $('turn').textContent = ''; draw();
   $('play').disabled = !rnn; $('stop').disabled = true; status();
 }
 $('stop').onclick = stop;
@@ -1078,8 +1088,14 @@ function draw(){
   $('note').textContent = curNote != null ? sar(curNote % 12) : '';
   renderStrip(); turnText();
   if (window.Duo && Duo.ok) {
+    const magTurn = phase === 'answer' || phase === 'think', yours = playing && mode === 'trade' && !magTurn;
+    const order = c => [...c.tones].sort((a, b) => ((a - c.root + 12) % 12) - ((b - c.root + 12) % 12));
+    const n = seqList.length || section().length;
     Duo.update({you: [...youNow, ...chordHand].map(p => p % 12), mel: curNote == null ? -1 : curNote % 12,
-                magchord: [...compNow], tones: curChord ? [...curChord.pcs] : []});
+                magchord: [...compNow], tones: yours && curChord ? [...curChord.tones] : [], covered: yours ? [...covered] : [],
+                turn: !playing ? null : magTurn ? 'mag' : mode === 'trade' ? 'you' : 'mag', thinking: phase === 'think',
+                chord: curChord ? {name: lettered(curChord.name), notes: order(curChord).map(pc => ({name: sar(pc), pc, done: yours && covered.has(pc)})),
+                                   step: mode === 'trade' && endMode === 'all' && !magTurn ? `${Math.min(gi + 1, n)}/${n}` : ''} : null});
     return;
   }
   if (window.World && World.ok) {

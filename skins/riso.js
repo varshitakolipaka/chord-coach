@@ -11,6 +11,7 @@
   const KB = {x0: 112, x1: 888, top: 432, bottom: 668, blackBottom: 574, restY: 408, gap: 3, jitter: 1.6, markPad: 7};
   const MIS = {black: [0, 0], red: [1.6, -1], yellow: [-1.4, 1.2], blue: [2, 1.4], pink: [-1.8, -1.2]};
   const B = window.Bristle;
+  const DISPLAY = {x: 250, y: 30, w: 500, h: 106};
   let P;   // the engine's toolkit, set on first use
 
   const fill = (x, poly, o) => B.fill(x, poly, o);
@@ -28,7 +29,7 @@
 
   // ---------- the print ----------
   function paint(c, PP, K){
-    P = PP; const {rnd} = P; B.seed(31);
+    P = PP; const {rnd} = P; B.seed(31); const D = DISPLAY;
     const box = {x: 0, y: 0, w: 1000, h: 700};
     const sh = Riso.sheet(box, P.S, ['paper', 'blue', 'yellow', 'pink', 'red', 'black']);
     const [paper, blue, yellow, pink, red, black] = ['paper', 'blue', 'yellow', 'pink', 'red', 'black'].map(sh.ink);
@@ -46,18 +47,24 @@
     const sky = [[10, 10], [990, 10], ...Array.from({length: 51}, (_, i) => [990 - i * 19.6, horizon(990 - i * 19.6) + 4])];
     inSheet(blue, () => { fill(blue, sky, {w: 46, ang: 0.02, a: 0.32, bend: 0.03, over: 0.6, reach: 360});
       fill(blue, [[10, 10], [990, 10], [990, 150], [10, 190]], {w: 40, ang: -0.03, a: 0.28, over: 0.8, reach: 300}); });
-    // the sun: yellow worked round and round, a pink blush at its heart, flicked rays
-    const sunR = 100, sun = circle(232, 166, sunR, sunR, 40, 4);
-    knock(blue, () => { P.pathOf(blue, circle(232, 166, sunR + 12, sunR + 12, 40, 3)); blue.fill(); });
-    fill(yellow, sun, {w: 26, ang: 0.5, a: 1, over: 0.15, bend: 0.12});
-    fill(yellow, circle(232, 166, sunR * 0.8, sunR * 0.8, 30, 3), {w: 22, ang: -0.6, a: 1, over: 0.1, bend: 0.1});
-    stroke(pink, [[180, 200], [232, 214], [286, 188]], {w: 46, a: 0.22, press: 'swell'}); stroke(pink, [[196, 150], [240, 136], [272, 150]], {w: 30, a: 0.16, press: 'flick'});
-    for (let i = 0; i < 26; i++) { const a = i / 26 * Math.PI * 2 + rnd(-0.05, 0.05), r0 = 126 + (i % 2) * 8 + rnd(-4, 4), len = 24 + (i % 2) * 12 + rnd(-4, 6);
-      flick(black, 232 + Math.cos(a) * r0, 166 + Math.sin(a) * r0, 232 + Math.cos(a) * (r0 + len), 166 + Math.sin(a) * (r0 + len), 5); }
-    // a cloud of pink at the top right, behind the title
-    const cloud = wob([[650, 14], [1000, 14], [1000, 250], [760, 258], [700, 200], [640, 120]], 8);
-    knock(blue, () => fill(blue, cloud, {w: 40, ang: -0.05, a: 1, over: 0.3}));
-    inSheet(pink, () => fill(pink, cloud, {w: 40, ang: -0.05, a: 0.34, over: 0.5}));
+    // the sun, top right: yellow worked round and round, flicked rays
+    const SX = 850, SY = 128, sunR = 74, sun = circle(SX, SY, sunR, sunR, 36, 3);
+    knock(blue, () => { P.pathOf(blue, circle(SX, SY, sunR + 10, sunR + 10, 36, 3)); blue.fill(); });
+    fill(yellow, sun, {w: 22, ang: 0.5, a: 1, over: 0.15, bend: 0.12});
+    fill(yellow, circle(SX, SY, sunR * 0.8, sunR * 0.8, 30, 3), {w: 18, ang: -0.6, a: 1, over: 0.1, bend: 0.1});
+    for (let i = 0; i < 22; i++) { const a = i / 22 * Math.PI * 2 + rnd(-0.05, 0.05), r0 = 94 + (i % 2) * 6 + rnd(-3, 3), len = 18 + (i % 2) * 10 + rnd(-3, 5);
+      inSheet(black, () => flick(black, SX + Math.cos(a) * r0, SY + Math.sin(a) * r0, SX + Math.cos(a) * (r0 + len), SY + Math.sin(a) * (r0 + len), 4.4)); }
+    // the 8-bit display Magenta watches, hanging on two strings: a red bezel round a black screen (the engine lights its LEDs)
+    const bezel = wob(P.curve([[248, 18], [500, 16], [752, 18], [764, 28], [764, 140], [752, 150], [500, 151], [248, 150], [236, 140], [236, 28]], true, 6), 1.2);
+    [blue, yellow, pink].forEach(x => knock(x, () => { P.pathOf(x, bezel); x.fill(); }));
+    fill(black, bezel.map(([x, y]) => [x + 9, y + 10]), {w: 22, ang: 0, a: 0.28, over: 0.2});
+    knock(black, () => { P.pathOf(black, bezel); black.fill(); });
+    fill(red, bezel, {w: 16, ang: 0.02, a: 1, over: 0.08});
+    const screen = wob([[D.x - 4, D.y - 4], [D.x + D.w + 4, D.y - 4], [D.x + D.w + 4, D.y + D.h + 4], [D.x - 4, D.y + D.h + 4]], 0.6);
+    knock(red, () => { P.pathOf(red, screen); red.fill(); });
+    fill(black, screen, {w: 16, ang: 0, a: 1, over: 0.04, gap: 0.3}); solid(black, [[D.x, D.y], [D.x + D.w, D.y], [D.x + D.w, D.y + D.h], [D.x, D.y + D.h]]);
+    contour(black, bezel, {w: 4, pieces: 4});
+    [[243, 24], [757, 24], [243, 144], [757, 144]].forEach(([x, y]) => dab(black, x, y, 4));
     // the hills: yellow and blue strokes along the slope (green where they overlap), black furrows flicked in
     const land = [...Array.from({length: 51}, (_, i) => [10 + i * 19.6, horizon(10 + i * 19.6)]), [990, 690], [10, 690]];
     inSheet(yellow, () => fill(yellow, land, {w: 30, ang: 0.04, a: 0.95, over: 0.4, reach: 300}));
@@ -96,44 +103,48 @@
       fill(black, wob([[k.x0, k.y0 - 4], [k.x1, k.y0 - 4], [k.x1, k.y1], [k.x0, k.y1]], 0.8), {w: 10, ang: Math.PI / 2, a: 1, over: 0.06, gap: 0.3});
       knock(black, () => { stroke(black, [[k.x0 + 9, k.y0 + 16], [k.x0 + 8.5, k.y1 - 24]], {w: 3, press: 'swell'}); stroke(black, [[k.x0 + 6, k.y1 - 10], [k.x1 - 6, k.y1 - 11]], {w: 2, press: 'flick'}); });
     });
-    // the title, set in type and printed in black
-    black.save(); black.globalAlpha = 1; black.textAlign = 'left'; black.fillStyle = '#000'; black.font = '900 24px Fraunces, Georgia, serif'; black.fillText('I Fall in Love Too Easily', 690, 66);
-    black.font = '700 14px Fraunces, Georgia, serif'; black.fillText('a riso print for two players', 692, 88); black.restore();
     stampTo(c, print(sh, {seed: 1}), box);
   }
 
-  // ---------- marks laid on the keys while notes sound: brushed in, a little over the edges ----------
+  // ---------- marks laid on the keys: brushed in, a little over the edges ----------
+  // target (a chord note still to play) = solid yellow; got = yellow and blue overprinted, which prints green;
+  // you (a note outside the chord) = blue; Magenta's note = pink; Magenta's chord = a pink tint
+  const MARK_INKS = {target: ['yellow'], got: ['yellow', 'blue'], you: ['blue'], mel: ['pink'], mc: ['pink']};
   function markKeys(c, kind, keys, PP, box){
     P = PP; B.seed(kind.length * 7 + 3);
-    // only the inks this kind of mark uses (the press is the slow part)
-    const inks = ['paper', 'black', {you: 'pink', mel: 'blue', mc: 'blue', tone: 'yellow'}[kind]];
+    const inks = ['paper', 'black', ...MARK_INKS[kind]];
     const sh = Riso.sheet(box, P.S, inks);
     const dummy = document.createElement('canvas').getContext('2d');
     const [paper, yellow, pink, blue, black] = ['paper', 'yellow', 'pink', 'blue', 'black'].map(n => inks.includes(n) ? sh.ink(n) : dummy);
     keys.forEach(k => {
       const q = k.black ? [[k.x0, k.y0 - 4], [k.x1, k.y0 - 4], [k.x1, k.y1], [k.x0, k.y1]] : k.poly;
       solid(paper, q.map(([x, y], i) => [x + (i === 0 || i === 3 ? -2 : 2), y]));
-      if (k.black && kind === 'tone') solid(black, q);
-      const brush = (ink, a) => fill(ink, wob(q, 1.2), {w: k.black ? 11 : 15, ang: Math.PI / 2 + 0.03, a, over: 0.12, gap: 0.42});
-      if (kind === 'you') brush(pink, 1);
-      if (kind === 'mel') brush(blue, 1);
-      if (kind === 'mc') { if (k.black) solid(black, q); brush(blue, k.black ? 0.75 : 0.42); }
-      if (kind === 'tone') {
-        const [x, y] = k.black ? [k.cx, k.y0 + 34] : [k.cx, KB.blackBottom - 40];
-        if (k.black) knock(black, () => { P.pathOf(black, circle(x, y, 14, 14, 20)); black.fill(); });
-        fill(yellow, circle(x, y, k.black ? 12 : 16, k.black ? 12 : 16, 24, 1.5), {w: 9, ang: 0.6, a: 1, over: 0.1});
-        dab(black, x, y, 5);
-        if (!k.black) { yellow.save(); P.pathOf(yellow, q); yellow.clip(); fill(yellow, [[k.x0, KB.blackBottom - 6], [k.x1, KB.blackBottom - 6], [k.x1, k.y1], [k.x0, k.y1]], {w: 14, ang: Math.PI / 2, a: 0.35, over: 0.2}); yellow.restore(); }
-      }
+      const brush = (ink, a) => fill(ink, wob(q, 1), {w: k.black ? 11 : 15, ang: Math.PI / 2 + 0.03, a, over: 0.1, gap: 0.36});
+      MARK_INKS[kind].forEach(ink => brush({yellow, pink, blue}[ink], kind === 'mc' ? (k.black ? 0.75 : 0.45) : 1));
+      if (k.black && kind === 'mc') brush(black, 0.35);
       if (!k.black) stroke(black, [[k.x1 + 3, k.y0 - 2], [k.x1 + 3.5, (k.y0 + k.y1) / 2], [k.x1 + 3, k.y1 + 2]], {w: 3.4, press: 'flat'});
     });
     stampTo(c, print(sh, {seed: 2}), box);
   }
 
+  // the print's border, brushed in the colour of whoever is playing
+  function border(c, PP, turn){
+    P = PP; B.seed(turn === 'you' ? 41 : 43);
+    const box = {x: 0, y: 0, w: 1000, h: 700}, ink = turn === 'you' ? 'blue' : 'pink';
+    const sh = Riso.sheet(box, P.S, [ink]), x = sh.ink(ink);
+    const E = 16, w = 26;
+    [[[E, E], [1000 - E, E]], [[1000 - E, E], [1000 - E, 700 - E]], [[1000 - E, 700 - E], [E, 700 - E]], [[E, 700 - E], [E, E]]].forEach(([a, b2]) => {
+      for (let pass = 0; pass < 2; pass++) { const n = 3; for (let i = 0; i < n; i++) {
+        const t0 = i / n - 0.04, t1 = (i + 1) / n + 0.04, p0 = [a[0] + (b2[0] - a[0]) * t0, a[1] + (b2[1] - a[1]) * t0], p1 = [a[0] + (b2[0] - a[0]) * t1, a[1] + (b2[1] - a[1]) * t1];
+        stroke(x, [p0, [(p0[0] + p1[0]) / 2 + P.rnd(-2, 2), (p0[1] + p1[1]) / 2 + P.rnd(-2, 2)], p1], {w: w * P.rnd(0.85, 1.1), press: 'flat', load: 1.6}); } }
+    });
+    stampTo(c, print(sh, {seed: turn === 'you' ? 5 : 6}), box);
+  }
+
   function label(k, kind){
-    const lit = kind === 'you' || kind === 'mel';
+    const lit = kind === 'you' || kind === 'mel' || kind === 'got';
     return k.black
-      ? {font: `700 17px Fraunces, Georgia, serif`, size: 17, y: k.y1 - 16, color: lit ? '#fff7ee' : '#efe5cf', mark: 2}
+      ? {font: `700 17px Fraunces, Georgia, serif`, size: 17, y: k.y1 - 16, color: lit ? '#fff7ee' : kind === 'target' ? '#1e1b1d' : '#efe5cf', mark: 2}
       : {font: `800 23px Fraunces, Georgia, serif`, size: 23, y: k.y1 - 12, color: lit ? '#fff7ee' : '#1e1b1d', mark: 2.6};
   }
 
@@ -177,7 +188,7 @@
     paw: {box: {x: -36, y: -26, w: 72, h: 50}, draw: pawDraw(false)},
     pawExtra: {box: {x: -36, y: -42, w: 72, h: 66}, draw: pawDraw(true)},
     tailUp: {box: {x: -160, y: -224, w: 200, h: 260},
-      draw(c, PP, box){ piece(c, PP, box, ['yellow', 'red', 'black'], L => tailDraw(L, [[0, 0], [-62, -10], [-104, -70], [-96, -150], [-58, -180]]), 5); }},
+      draw(c, PP, box){ piece(c, PP, box, ['yellow', 'red', 'black'], L => tailDraw(L, [[0, 0], [-62, -8], [-100, -48], [-98, -104], [-66, -128]]), 5); }},
     tailDown: {box: {x: -8, y: -6, w: 44, h: 316}, inner: {x0: 0, y0: 0, x1: 28, y1: 300},
       draw(c, PP, box){ piece(c, PP, box, ['yellow', 'red', 'black'], ({paper, yellow, red, black}) => {
         const q = [[0, -4], [28, -4], [28, 304], [0, 304]];
@@ -218,6 +229,9 @@
         dab(pink, 0, 22, 9, 1, 0); contour(black, [[-9, 18], [9, 18], [0, 28]], {w: 2.2, pieces: 1});
         stroke(black, [[0, 28], [0, 35], [-9, 41], [-17, 37]], {w: 3.2, press: 'swell'}); stroke(black, [[0, 35], [9, 41], [17, 37]], {w: 3.2, press: 'swell'});
         contour(black, head, {w: 4.6, pieces: 5});
+        // Magenta's collar: a band of magenta pink, and a little yellow name tag
+        stroke(paper, [[-44, 52], [0, 62], [44, 52]], {w: 13, press: 'flat', load: 2}); stroke(pink, [[-46, 51], [0, 61], [46, 51]], {w: 12, press: 'flat', load: 2});
+        dab(paper, 6, 72, 9); dab(yellow, 6, 72, 9, 1); contour(black, circle(6, 72, 8, 8, 16, 0.4), {w: 2, pieces: 2});
         [[-1, 26, -0.12], [-1, 33, 0.03], [-1, 40, 0.16], [1, 26, -0.12], [1, 33, 0.03], [1, 40, 0.16]].forEach(([s, dy, a]) => stroke(black, [[s * 34, dy], [s * 80, dy + a * 50 - 4], [s * 128, dy + a * 104 - 8]], {w: 2.2, press: 'flick', hairs: 5}));
       }, 8); }},
   };
@@ -263,9 +277,9 @@
     dab(black, ...pts[n - 1], 9, 1, 1);
   }
 
-  const cat = {floor: 336, thick: 112, restLen: 300, pad: 46, minLen: 250, headIn: 34, headDrop: 26, legW: 36, tailW: 28,
+  const cat = {floor: 336, thick: 104, restLen: 300, pad: 46, minLen: 250, headIn: 30, headDrop: 30, headScale: 0.84, legW: 36, tailW: 28,
     eyes: pieces.head.eyes, pupil: '#1e1b1d', pieces};
 
-  Duo.register({id: 'riso', name: 'Riso print', seed: 21, KB, paint, markKeys, needsFonts: true, label, cat, painterly: false,
-    alt: 'A brush-painted risograph print in red, yellow, blue, black and fluorescent pink: a red Casio keyboard under a big sun, and a long ginger cat with owl eyes standing on it, its legs dropping straight down onto the keys'});
+  Duo.register({id: 'riso', name: 'Riso print', seed: 21, KB, paint, markKeys, border, display: DISPLAY, needsFonts: false, label, cat, painterly: false,
+    alt: 'A brush-painted risograph print in red, yellow, blue, black and fluorescent pink: a red Casio keyboard under a hanging 8-bit display, and Magenta, a long ginger cat with owl eyes and a magenta collar, standing on it and playing its notes'});
 })();

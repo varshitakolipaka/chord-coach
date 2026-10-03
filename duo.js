@@ -11,11 +11,11 @@
 (function () {
   const W = 1000, H = 700;
   const BLACK = new Set([1, 3, 6, 8, 10]);
-  const KINDS = ['you', 'mel', 'mc', 'tone'];
+  const KINDS = ['you', 'got', 'target', 'mel', 'mc'];   // your stray note, a chord note you've got, one still to play, Magenta's note, Magenta's chord
   const Duo = {ok: false, skins: {}, order: [], W, H};
   window.Duo = Duo;
   let host, wrap, cv, ctx, catCv, cat, S = 2, work = null, base = null, sheets = null, skin = null, K = null, opts, dispK = 1, dpr = 1;
-  let state = {you: [], mel: -1, magchord: [], tones: [], turn: 'idle'};
+  let state = {you: [], mel: -1, magchord: [], tones: [], covered: [], turn: null, chord: null};
 
   // ---------- seeded randomness: a personality always paints the same picture ----------
   let seedN = 1;
@@ -170,7 +170,7 @@
   // Everything is first drawn as a plain picture (instant, so the app works straight away), then repainted stroke by
   // stroke in the background (painter.js): first the scene, which you can watch being painted, then each piece of the
   // cat, then the key marks. The painted layer sits over the plain one, which fills any gaps between strokes.
-  let pieces = {}, paintToken = 0;
+  let pieces = {}, paintToken = 0, borders = {};
   const overlay = (flat, painted) => { const c2 = document.createElement('canvas'); c2.width = flat.width; c2.height = flat.height; const x = c2.getContext('2d'); x.drawImage(flat, 0, 0); x.drawImage(painted, 0, 0); return c2; };
   function paintSkin(){
     const t0 = performance.now(), token = ++paintToken;
@@ -187,6 +187,15 @@
       sheets[kind + (black ? 'B' : 'W')] = flatSheets[kind + (black ? 'B' : 'W')] = sh;
     }
     Duo.box = box;
+    // the print's own border, in each player's colour
+    borders = {};
+    ['you', 'mag'].forEach(t => { const bc = document.createElement('canvas'); bc.width = W * S; bc.height = H * S; const bx = bc.getContext('2d'); bx.scale(S, S);
+      if (skin.border) skin.border(bx, P, t); else plainBorder(bx, t); borders[t] = bc; });
+    // the hanging 8-bit display: a dim grid of LEDs, lit live in render()
+    if (skin.display) { const D = skin.display, bx = base.getContext('2d'); bx.save(); bx.setTransform(S, 0, 0, S, 0, 0);
+      if (D.panel === 'engine') { bx.fillStyle = '#17141a'; bx.beginPath(); bx.roundRect(D.x - 10, D.y - 10, D.w + 20, D.h + 20, 10); bx.fill(); }
+      bx.fillStyle = 'rgba(255,240,220,0.07)'; for (let y = D.y + 1; y < D.y + D.h - 1; y += LEDP) for (let x = D.x + 1; x < D.x + D.w - 1; x += LEDP) bx.fillRect(x, y, LEDP - 1.1, LEDP - 1.1);
+      bx.restore(); }
     // the cat, piece by piece: plain now, painted shortly
     pieces = {}; const flatPieces = {};
     Object.entries(skin.cat.pieces).forEach(([name, pc]) => {
@@ -250,8 +259,9 @@
     const z = dpr * dispK;
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, cv.width, cv.height);
     ctx.drawImage(base, 0, 0, W * S, H * S, 0, 0, W * z, H * z);
-    const you = new Set(state.you), tone = new Set(state.tones), mc = new Set(state.magchord);
-    const kindOf = k => you.has(k.pc) ? 'you' : state.mel === k.pc ? 'mel' : mc.has(k.pc) ? 'mc' : tone.has(k.pc) ? 'tone' : null;
+    if (state.turn && borders[state.turn]) ctx.drawImage(borders[state.turn], 0, 0, W * S, H * S, 0, 0, W * z, H * z);
+    const you = new Set(state.you), tone = new Set(state.tones), mc = new Set(state.magchord), got = new Set(state.covered || []);
+    const kindOf = k => you.has(k.pc) ? (tone.has(k.pc) ? 'got' : 'you') : state.mel === k.pc ? 'mel' : mc.has(k.pc) ? 'mc' : got.has(k.pc) ? 'got' : tone.has(k.pc) ? 'target' : null;
     const box = Duo.box, pad = skin.KB.markPad ?? 5;
     const blit = (src, k) => {
       const x = k.x0 - pad, y = k.y0 - pad, w = k.x1 - k.x0 + pad * 2, h = k.y1 - k.y0 + pad * 2;
@@ -273,6 +283,60 @@
       if (komal) { ctx.beginPath(); ctx.moveTo(k.cx - wd / 2, y + st.size * 0.2); ctx.lineTo(k.cx + wd / 2, y + st.size * 0.2); ctx.stroke(); }
       if (tivra) { ctx.beginPath(); ctx.moveTo(k.cx, y - st.size * 0.92); ctx.lineTo(k.cx, y - st.size * 1.22); ctx.stroke(); }
     });
+    if (skin.display) drawDisplay(ctx, skin.display);
+  }
+
+  // ---------- the 8-bit display ----------
+  // Text is rasterised small, thresholded into pixels, and each pixel drawn as a lit LED square.
+  const LEDP = 3.4, pixCache = new Map();
+  const LED = {yellow: '#ffd84d', green: '#5ce07e', blue: '#5aaeff', pink: '#ff63b8', white: '#fff4e2'};
+  function pix(text, px){
+    const key = text + '|' + px; if (pixCache.has(key)) return pixCache.get(key);
+    const c = document.createElement('canvas'), x = c.getContext('2d'), font = `800 ${px}px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif`;
+    x.font = font; const w = Math.ceil(x.measureText(text).width) + 2, h = Math.ceil(px * 1.25);
+    c.width = w; c.height = h; x.font = font; x.textBaseline = 'alphabetic'; x.fillStyle = '#000'; x.fillText(text, 1, Math.round(px * 0.98));
+    const d = x.getImageData(0, 0, w, h).data, on = new Uint8Array(w * h);
+    let x0 = w, x1 = -1, y0 = h, y1 = -1;
+    for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) if (d[(j * w + i) * 4 + 3] > 120) { on[j * w + i] = 1; x0 = Math.min(x0, i); x1 = Math.max(x1, i); y0 = Math.min(y0, j); y1 = Math.max(y1, j); }
+    const r = {w, h, on, x0: Math.max(0, x0), x1: Math.max(0, x1), base: Math.round(px * 0.98), top: y0};
+    pixCache.set(key, r); return r;
+  }
+  // draw pixel text with its left edge at x and its baseline at y; returns its width
+  function led(c, text, px, x, y, color, opts = {}){
+    const r = pix(text, px), p = LEDP;
+    c.fillStyle = color; c.shadowColor = color; c.shadowBlur = 4;
+    for (let j = 0; j < r.h; j++) for (let i = r.x0; i <= r.x1; i++) if (r.on[j * r.w + i]) c.fillRect(x + (i - r.x0) * p, y + (j - r.base) * p, p - 1.1, p - 1.1);
+    const width = (r.x1 - r.x0 + 1) * p;
+    if (opts.underline) for (let i = 0; i < r.x1 - r.x0 + 1; i++) c.fillRect(x + i * p, y + 2 * p, p - 1.1, p - 1.1);            // komal
+    if (opts.tick) { const m = x + Math.floor((r.x1 - r.x0) / 2) * p; for (let j = 0; j < 2; j++) c.fillRect(m, y + (r.top - r.base - 2 - j) * p, p - 1.1, p - 1.1); }   // tivra
+    c.shadowBlur = 0;
+    return width;
+  }
+  const ledWidth = (text, px) => { const r = pix(text, px); return (r.x1 - r.x0 + 1) * LEDP; };
+  function drawDisplay(c, D){
+    c.save(); c.beginPath(); c.rect(D.x, D.y, D.w, D.h); c.clip();
+    const s = state, mag = s.turn === 'mag', ch = s.chord, P = LEDP;
+    // snap to the LED grid
+    const gx = v => D.x + 1 + Math.round((v - D.x - 1) / P) * P, gy = v => D.y + 1 + Math.round((v - D.y - 1) / P) * P;
+    if (!s.turn || !ch) {
+      const a = 'MAGENTA', aw = ledWidth(a, 13); led(c, a, 13, gx(D.x + (D.w - aw) / 2), gy(D.y + 8 + 13 * P), LED.pink);
+      const t = 'press play', w = ledWidth(t, 8); led(c, t, 8, gx(D.x + (D.w - w) / 2), gy(D.y + D.h - 4 * P), LED.yellow);
+      c.restore(); return;
+    }
+    // the border says whose turn it is, so the screen only shows what to play: the chord, big, and its notes
+    if (ch.step) { const w = ledWidth(ch.step, 9); led(c, ch.step, 9, gx(D.x + D.w - 8 - w), gy(D.y + 6 + 8 * P), LED.white); }
+    let px = 15; while (px > 8 && ledWidth(ch.name, px) > D.w - 90) px--;
+    const cw = ledWidth(ch.name, px); led(c, ch.name, px, gx(D.x + (D.w - cw) / 2), gy(D.y + 4 + px * 0.98 * P), mag ? LED.pink : LED.yellow);
+    // its notes in sargam: yellow still to play, green got
+    const names = ch.notes.map(n => ({t: n.name.replace(/^(komal|tivra) /, ''), komal: n.name.startsWith('komal '), tivra: n.name.startsWith('tivra '), done: n.done}));
+    const gap = 4 * P, total = names.reduce((a, n) => a + ledWidth(n.t, 9), 0) + gap * (names.length - 1);
+    let x = gx(D.x + (D.w - total) / 2); const y = gy(D.y + D.h - 4 * P);
+    names.forEach(n => { x += led(c, n.t, 9, x, y, mag ? LED.white : n.done ? LED.green : LED.yellow, {underline: n.komal, tick: n.tivra}) + gap; x = gx(x); });
+    c.restore();
+  }
+  function plainBorder(c, t){
+    const col = t === 'you' ? '#1f74c8' : '#e8489a';
+    c.save(); c.strokeStyle = col; c.lineWidth = 14; c.lineJoin = 'round'; c.strokeRect(12, 12, W - 24, H - 24); c.restore();
   }
 
   // ---------- the cat: long, squishy, absurd ----------
@@ -306,9 +370,9 @@
   function targetsFrom(s){
     // Magenta plays through the cat; on your turn its paws hover over the chord's notes as a hint
     const keyOf = pc => K.all.find(k => k.pc === pc);
+    // the cat is Magenta: it plays Magenta's melody and chords, and only those
     let pcs = [], hover = false;
-    if (s.mel >= 0 || (s.magchord && s.magchord.length)) pcs = [...new Set([...(s.magchord || []), ...(s.mel >= 0 ? [s.mel] : [])])];
-    else if (s.tones && s.tones.length) { pcs = [...s.tones]; hover = true; }
+    if (s.turn === 'mag' && (s.mel >= 0 || (s.magchord && s.magchord.length))) pcs = [...new Set([...(s.magchord || []), ...(s.mel >= 0 ? [s.mel] : [])])];
     return {keys: pcs.map(keyOf).filter(Boolean).sort((a, b) => a.cx - b.cx), hover, mel: s.mel};
   }
   function assign(){
@@ -403,9 +467,10 @@
     // the head rides on the front end
     const hx = g.F - (look.headIn ?? 30), hy = g.top + (look.headDrop ?? 18);
     c.save(); c.translate(hx, hy); c.rotate(Math.max(-0.12, Math.min(0.12, C.vF / 2500)));
+    const hs = look.headScale || 1; c.scale(hs, hs);
     stamp(c, 'head', 0, 0);
     if (look.eyes) {   // the eyes follow the note it's playing
-      const tgt = C.looking ? C.looking.paw : [hx + 200, 560];
+      const D = skin.display, tgt = state.turn === 'mag' && C.looking ? C.looking.paw : D ? [D.x + D.w / 2, D.y + D.h / 2] : [hx + 200, 560];
       look.eyes.forEach(([ex, ey, r]) => {
         const a = Math.atan2(tgt[1] - (hy + ey), tgt[0] - (hx + ex));
         c.fillStyle = look.pupil || '#111'; c.beginPath(); c.ellipse(ex + Math.cos(a) * r * 0.42, ey + Math.sin(a) * r * 0.42, r * 0.4, r * 0.62, 0, 0, 7); c.fill();
