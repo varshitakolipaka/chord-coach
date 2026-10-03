@@ -1,126 +1,131 @@
-// Riso: the cat, pulled as a risograph print.
-// Five spot inks on cream stock: black, the Casio's red, sunflower yellow, riso blue and fluorescent pink.
-// Tints are halftone dots, solids lie down a little unevenly, every drum is a hair out of register, and inks overprint:
-// the ginger cat is yellow under a red tint, the green hills are blue over yellow. Fur and feathers-of-fur are carved
-// linocut marks. Your notes print in fluorescent pink, Magenta's in blue, the chord's notes as yellow dots.
+// Riso: the cat, pulled as a risograph print, with every form painted by brush.
+// Each ink separation is painted with a bristle brush (bristle.js), the way printmakers paint their own separations:
+// forms are built from strokes laid along them, edges are wherever the strokes happened to stop, outlines are a few
+// overlapping strokes that swell and lift, and nothing is a perfect shape. Then the press (riso.js) does its part:
+// tints become halftone dots, solids lie down unevenly, the drums are a hair out of register, and inks overprint
+// (the ginger cat is yellow under red, the hills blue over yellow).
+// Five inks on cream stock: black, the Casio's red, sunflower yellow, riso blue, fluorescent pink.
+// Your notes print in fluorescent pink, Magenta's in blue, the chord's notes as yellow dabs.
 (function () {
   const PAPER = '#f4ecd8';
-  const KB = {x0: 112, x1: 888, top: 432, bottom: 668, blackBottom: 574, restY: 408, gap: 3};
+  const KB = {x0: 112, x1: 888, top: 432, bottom: 668, blackBottom: 574, restY: 408, gap: 3, jitter: 1.6, markPad: 7};
   const MIS = {black: [0, 0], red: [1.6, -1], yellow: [-1.4, 1.2], blue: [2, 1.4], pink: [-1.8, -1.2]};
-  const D = a => `rgba(0,0,0,${a})`;
+  const B = window.Bristle;
   let P;   // the engine's toolkit, set on first use
 
-  // ---- small drawing helpers on an ink layer ----
-  function shape(x, pts, a = 1, smooth = false){ x.fillStyle = D(a); P.pathOf(x, pts, smooth); x.fill(); }
-  function line(x, pts, w, a = 1){ x.strokeStyle = D(a); x.lineWidth = w; x.beginPath(); pts.forEach(([px, py], i) => i ? x.lineTo(px, py) : x.moveTo(px, py)); x.stroke(); }
-  function knock(x, fn){ x.save(); x.globalCompositeOperation = 'destination-out'; fn(); x.restore(); }
-  function grad(x, x0, y0, x1, y1, stops){ const g = x.createLinearGradient(x0, y0, x1, y1); stops.forEach(([o, a]) => g.addColorStop(o, D(a))); return g; }
-  // a carved linocut mark: a short tapered curve
-  function carve(x, cx, cy, len, ang, w, a = 1){
-    const dx = Math.cos(ang) * len / 2, dy = Math.sin(ang) * len / 2, nx = -dy * 0.25, ny = dx * 0.25;
-    const pts = P.ribbon(P.quad([cx - dx, cy - dy], [cx + nx, cy + ny], [cx + dx, cy + dy], 6), t => w * Math.sin(Math.PI * t) + 0.3);
-    shape(x, pts, a);
-  }
-  // a wedge stripe from the spine, loaded at the start and running out
-  function stripe(x, pts, w, a = 1){ const ln = pts.length > 2 ? P.curve(pts, false, 6) : pts; shape(x, P.ribbon(ln, t => w * Math.min(1, 0.4 + t * 5) * (1 - 0.88 * t) + 0.4), a); }
+  const fill = (x, poly, o) => B.fill(x, poly, o);
+  const stroke = (x, pts, o) => B.stroke(x, pts, o);
+  const contour = (x, poly, o) => B.contour(x, poly, o);
+  const wob = (pts, amp, f) => B.wobble(pts, amp, f);
+  const knock = (x, fn) => { x.save(); x.globalCompositeOperation = 'destination-out'; fn(); x.restore(); };
+  const solid = (x, pts) => { x.fillStyle = '#000'; x.globalAlpha = 1; P.pathOf(x, pts); x.fill(); };
+  const circle = (cx, cy, rx, ry, n = 30, amp = 0) => wob(P.ell(cx, cy, rx, ry, n), amp);
   const print = (sh, o) => sh.print(Object.assign({paper: PAPER, misreg: MIS, cell: 5.4}, o || {}));
   const stampTo = (c, out, box) => c.drawImage(out, box.x, box.y, box.w, box.h);
+  // a flick: a short loaded stroke that runs out
+  const flick = (x, x0, y0, x1, y1, w, a = 1, bend = 0) => stroke(x, [[x0, y0], [(x0 + x1) / 2 + bend, (y0 + y1) / 2], [x1, y1]], {w, a, press: 'flick'});
+  const dab = (x, cx, cy, r, a = 1, ang = 0.3) => stroke(x, [[cx - Math.cos(ang) * r * 0.5, cy - Math.sin(ang) * r * 0.5], [cx + Math.cos(ang) * r * 0.5, cy + Math.sin(ang) * r * 0.5]], {w: r * 1.6, a, press: 'dab', load: 2});
 
   // ---------- the print ----------
   function paint(c, PP, K){
-    P = PP; const {rnd, ell, curve} = P;
+    P = PP; const {rnd} = P; B.seed(31);
     const box = {x: 0, y: 0, w: 1000, h: 700};
     const sh = Riso.sheet(box, P.S, ['paper', 'blue', 'yellow', 'pink', 'red', 'black']);
     const [paper, blue, yellow, pink, red, black] = ['paper', 'blue', 'yellow', 'pink', 'red', 'black'].map(sh.ink);
-    // the sheet, with a deckled edge
+    // the sheet, with a deckled edge (the stock itself is the only thing not painted)
     const edge = [], E = 16, J = () => rnd(-3, 3);
     for (let x = E; x <= 1000 - E; x += 14) edge.push([x, E + J()]);
     for (let y = E; y <= 700 - E; y += 14) edge.push([1000 - E + J(), y]);
     for (let x = 1000 - E; x >= E; x -= 14) edge.push([x, 700 - E + J()]);
     for (let y = 700 - E; y >= E; y -= 14) edge.push([E + J(), y]);
-    shape(paper, edge, 1);
-    const clipE = (x, fn) => { x.save(); P.pathOf(x, edge); x.clip(); fn(); x.restore(); };
+    solid(paper, edge);
+    const inSheet = (x, fn) => { x.save(); P.pathOf(x, edge); x.clip(); fn(); x.restore(); };
+    const horizon = xx => 304 + Math.sin(xx * 0.012) * 16 + Math.sin(xx * 0.031) * 7;
 
-    // sky: a blue tint deepening toward the top, ending in a carved wavy horizon
-    const hills = [[0, 300]]; for (let xx = 0; xx <= 1000; xx += 20) hills.push([xx, 300 + Math.sin(xx * 0.012) * 16 + Math.sin(xx * 0.031) * 7]); hills.push([1000, 0], [0, 0]);
-    clipE(blue, () => { blue.fillStyle = grad(blue, 0, 0, 0, 320, [[0, 0.62], [1, 0.22]]); P.pathOf(blue, hills); blue.fill(); });
-    // a big sun: solid yellow, a pink tint at its heart, carved rays around it
-    const sun = ell(232, 168, 104, 104, 60);
-    shape(yellow, sun, 1);
-    pink.fillStyle = (() => { const g = pink.createRadialGradient(232, 168, 4, 232, 168, 104); g.addColorStop(0, D(0.55)); g.addColorStop(1, D(0)); return g; })(); P.pathOf(pink, sun); pink.fill();
-    knock(blue, () => { P.pathOf(blue, ell(232, 168, 112, 112, 60)); blue.fill(); });
-    for (let i = 0; i < 28; i++) { const a = i / 28 * Math.PI * 2, r0 = 122 + (i % 2) * 8; carve(black, 232 + Math.cos(a) * (r0 + 12), 168 + Math.sin(a) * (r0 + 12), 22 + (i % 2) * 10, a, 3.2, 1); }
-    // a field of pink dots in the top right, with a wobbling edge
-    const field = [[640, 16], [1000, 16], [1000, 290], [700, 290]]; const fe = [];
-    for (let y = 16; y <= 290; y += 12) fe.push([640 + Math.sin(y * 0.05) * 18 + y * 0.18, y]);
-    clipE(pink, () => { shape(pink, [...fe, [1000, 290], [1000, 16]], 0.32); });
-    // the hills: blue over yellow prints green; carved furrows
-    const land = [[0, 300]]; for (let xx = 0; xx <= 1000; xx += 20) land.push([xx, 300 + Math.sin(xx * 0.012) * 16 + Math.sin(xx * 0.031) * 7]); land.push([1000, 700], [0, 700]);
-    clipE(yellow, () => shape(yellow, land, 0.9));
-    clipE(blue, () => shape(blue, land, 0.55));
-    clipE(black, () => { for (let r = 0; r < 26; r++) { const y0 = 318 + r * 15; for (let xx = 20 + (r % 2) * 18; xx < 990; xx += 36) carve(black, xx, y0 + Math.sin(xx * 0.012) * 10, 16, 0.08 * Math.sin(xx * 0.02), 2.6, 0.85); } });
+    // sky: broad blue strokes, laid twice so the tint gathers unevenly, darker up top
+    const sky = [[10, 10], [990, 10], ...Array.from({length: 51}, (_, i) => [990 - i * 19.6, horizon(990 - i * 19.6) + 4])];
+    inSheet(blue, () => { fill(blue, sky, {w: 46, ang: 0.02, a: 0.32, bend: 0.03, over: 0.6, reach: 360});
+      fill(blue, [[10, 10], [990, 10], [990, 150], [10, 190]], {w: 40, ang: -0.03, a: 0.28, over: 0.8, reach: 300}); });
+    // the sun: yellow worked round and round, a pink blush at its heart, flicked rays
+    const sunR = 100, sun = circle(232, 166, sunR, sunR, 40, 4);
+    knock(blue, () => { P.pathOf(blue, circle(232, 166, sunR + 12, sunR + 12, 40, 3)); blue.fill(); });
+    fill(yellow, sun, {w: 26, ang: 0.5, a: 1, over: 0.15, bend: 0.12});
+    fill(yellow, circle(232, 166, sunR * 0.8, sunR * 0.8, 30, 3), {w: 22, ang: -0.6, a: 1, over: 0.1, bend: 0.1});
+    stroke(pink, [[180, 200], [232, 214], [286, 188]], {w: 46, a: 0.22, press: 'swell'}); stroke(pink, [[196, 150], [240, 136], [272, 150]], {w: 30, a: 0.16, press: 'flick'});
+    for (let i = 0; i < 26; i++) { const a = i / 26 * Math.PI * 2 + rnd(-0.05, 0.05), r0 = 126 + (i % 2) * 8 + rnd(-4, 4), len = 24 + (i % 2) * 12 + rnd(-4, 6);
+      flick(black, 232 + Math.cos(a) * r0, 166 + Math.sin(a) * r0, 232 + Math.cos(a) * (r0 + len), 166 + Math.sin(a) * (r0 + len), 5); }
+    // a cloud of pink at the top right, behind the title
+    const cloud = wob([[650, 14], [1000, 14], [1000, 250], [760, 258], [700, 200], [640, 120]], 8);
+    knock(blue, () => fill(blue, cloud, {w: 40, ang: -0.05, a: 1, over: 0.3}));
+    inSheet(pink, () => fill(pink, cloud, {w: 40, ang: -0.05, a: 0.34, over: 0.5}));
+    // the hills: yellow and blue strokes along the slope (green where they overlap), black furrows flicked in
+    const land = [...Array.from({length: 51}, (_, i) => [10 + i * 19.6, horizon(10 + i * 19.6)]), [990, 690], [10, 690]];
+    inSheet(yellow, () => fill(yellow, land, {w: 30, ang: 0.04, a: 0.95, over: 0.4, reach: 300}));
+    inSheet(blue, () => fill(blue, land, {w: 30, ang: -0.05, a: 0.55, over: 0.4, reach: 300}));
+    inSheet(black, () => { for (let r = 0; r < 24; r++) { const y0 = 324 + r * 16; for (let xx = 24 + (r % 2) * 20 + rnd(-6, 6); xx < 986; xx += 40 + rnd(-8, 8)) { const yy = y0 + Math.sin(xx * 0.012) * 10; flick(black, xx - 9, yy + rnd(-1, 1), xx + 9, yy + rnd(-2, 2), 3.4, 0.9, rnd(-2, 2)); } } });
 
-    // ---- the Casio ----
-    const cas = curve([[84, 340], [300, 337], [500, 336], [700, 337], [916, 340], [934, 356], [938, 520], [934, 676], [916, 690], [700, 692], [500, 693], [300, 692], [84, 690], [66, 676], [62, 520], [66, 356]], true, 8);
-    // knock the landscape out under it, so the red prints clean on paper
+    // ---- the Casio, painted in long red strokes ----
+    const cas = wob(P.curve([[84, 342], [300, 338], [500, 336], [700, 338], [916, 341], [934, 358], [938, 520], [934, 674], [916, 689], [700, 692], [500, 693], [300, 692], [84, 690], [66, 676], [62, 520], [66, 358]], true, 6), 2.2, 0.03);
     [blue, yellow, black, pink].forEach(x => knock(x, () => { P.pathOf(x, cas); x.fill(); }));
-    shape(black, cas.map(([x, y]) => [x + 12, y + 12]), 0.35);          // its shadow, as a black tint
+    fill(black, cas.map(([x, y]) => [x + 13, y + 13]), {w: 30, ang: 0, a: 0.3, over: 0.2});     // its shadow, a black tint
     knock(black, () => { P.pathOf(black, cas); black.fill(); });
-    shape(red, cas, 1);
-    // red-on-red shading: a black tint toward the bottom and right
-    black.save(); P.pathOf(black, cas); black.clip(); black.fillStyle = grad(black, 0, 340, 0, 700, [[0, 0], [0.6, 0.05], [1, 0.3]]); black.fillRect(0, 300, 1000, 420); black.restore();
-    // carved highlights along the top edge
-    knock(red, () => { for (let i = 0; i < 3; i++) line(red, [[110 + i * 6, 348 + i * 5], [880 - i * 30, 348 + i * 5]], 2.2 - i * 0.5); });
-    // grilles, knob, buttons
-    const grille = (x0, x1) => { for (let r = 0; r < 4; r++) for (let x = x0 + (r % 2) * 7; x < x1; x += 14) shape(black, ell(x, 358 + r * 13, 3.2, 3.2, 10), 1); };
+    fill(red, cas, {w: 28, ang: 0.01, a: 1, over: 0.12, reach: 420, bend: 0.01});
+    fill(black, wob([[70, 600], [930, 600], [934, 686], [66, 686]], 3), {w: 22, ang: 0, a: 0.16, over: 0.2});   // shade along the bottom
+    knock(red, () => { stroke(red, [[100, 348], [500, 346], [880, 350]], {w: 4, press: 'swell'}); stroke(red, [[130, 357], [620, 356]], {w: 2.4, press: 'flick'}); });
+    // grilles as dabs, knob and buttons as worked blobs
+    const grille = (x0, x1) => { for (let r = 0; r < 4; r++) for (let x = x0 + (r % 2) * 7; x < x1; x += 14) dab(black, x + rnd(-0.6, 0.6), 358 + r * 13 + rnd(-0.6, 0.6), 4.4, 1, rnd(0, 3)); };
     grille(110, 330); grille(670, 890);
-    shape(black, ell(392, 382, 19, 19, 30), 1); knock(black, () => line(black, [[392, 368], [392, 378]], 3.5)); shape(yellow, ell(392, 373, 2.5, 6, 10), 1);
-    [450, 486, 522, 558, 594].forEach((x, i) => { shape(i === 2 ? yellow : black, ell(x, 384, 11, 8, 22), 1); if (i === 2) shape(black, ell(x, 384, 11, 8, 22).map(([a, b]) => [a, b]), 0); });
-    line(black, cas.concat([cas[0]]), 5.5);
-    // ---- keys ----
-    const bed = [[KB.x0 - 8, KB.top - 8], [KB.x1 + 8, KB.top - 8], [KB.x1 + 8, KB.bottom + 9], [KB.x0 - 8, KB.bottom + 9]];
+    fill(black, circle(392, 382, 19, 19, 24, 1.2), {w: 9, ang: 0.7, a: 1, over: 0.1}); contour(black, circle(392, 382, 19, 19, 24, 1), {w: 3});
+    knock(black, () => stroke(black, [[392, 366], [392, 379]], {w: 4, press: 'flick'}));
+    [450, 486, 522, 558, 594].forEach((x, i) => { if (i === 2) dab(yellow, x, 384, 12, 1, 0); else dab(black, x, 384, 11, 1, 0.1); });
+    contour(black, cas, {w: 6.5, pieces: 7});
+    // ---- the keys ----
+    const bed = wob([[KB.x0 - 9, KB.top - 9], [KB.x1 + 9, KB.top - 9], [KB.x1 + 9, KB.bottom + 10], [KB.x0 - 9, KB.bottom + 10]], 1.5);
     knock(red, () => { P.pathOf(red, bed); red.fill(); });
-    shape(black, bed, 1);
+    fill(black, bed, {w: 18, ang: Math.PI / 2, a: 1, over: 0.15, gap: 0.3});
     K.whites.forEach(k => {
       knock(black, () => { P.pathOf(black, k.poly); black.fill(); });
-      // a soft black tint: shade on the right, and the shadows of the black keys
       black.save(); P.pathOf(black, k.poly); black.clip();
-      black.fillStyle = grad(black, k.x0, 0, k.x1, 0, [[0, 0], [0.6, 0.02], [1, 0.16]]); black.fillRect(k.x0, k.y0, k.x1 - k.x0, k.y1 - k.y0);
-      black.fillStyle = grad(black, 0, k.y0, 0, k.y0 + 26, [[0, 0.3], [1, 0]]); black.fillRect(k.x0, k.y0, k.x1 - k.x0, 26);
-      K.blacks.forEach(b => { if (b.x1 < k.x0 - 10 || b.x0 > k.x1 + 10) return; black.fillStyle = D(0.24); black.fillRect(b.x1, b.y0, 8, b.y1 - b.y0 + 8); black.fillRect(b.x0 + 6, b.y1, b.x1 - b.x0 + 2, 9); });
+      stroke(black, [[k.x0, k.y0 + 6], [k.x1, k.y0 + 7]], {w: 12, a: 0.22, press: 'flat'});                  // under the panel lip
+      K.blacks.forEach(b => { if (b.x1 < k.x0 - 10 || b.x0 > k.x1 + 10) return;
+        stroke(black, [[b.x1 + 4, b.y0], [b.x1 + 4, b.y1 + 6]], {w: 9, a: 0.24, press: 'flat'}); stroke(black, [[b.x0 + 4, b.y1 + 5], [b.x1 + 6, b.y1 + 5]], {w: 9, a: 0.22, press: 'flat'}); });
       black.restore();
+      stroke(black, [[k.x1 + 3, k.y0 - 2], [k.x1 + 3.5, (k.y0 + k.y1) / 2], [k.x1 + 3, k.y1 + 2]], {w: 3.4, press: 'flat'});
     });
     K.blacks.forEach(k => {
-      const q = [[k.x0, k.y0 - 4], [k.x1, k.y0 - 4], [k.x1, k.y1], [k.x0, k.y1]]; shape(black, q, 1);
-      knock(black, () => { line(black, [[k.x0 + 9, k.y0 + 16], [k.x0 + 9, k.y1 - 22]], 2.6); line(black, [[k.x0 + 5, k.y1 - 10], [k.x1 - 5, k.y1 - 10]], 1.6); });
+      fill(black, wob([[k.x0, k.y0 - 4], [k.x1, k.y0 - 4], [k.x1, k.y1], [k.x0, k.y1]], 0.8), {w: 10, ang: Math.PI / 2, a: 1, over: 0.06, gap: 0.3});
+      knock(black, () => { stroke(black, [[k.x0 + 9, k.y0 + 16], [k.x0 + 8.5, k.y1 - 24]], {w: 3, press: 'swell'}); stroke(black, [[k.x0 + 6, k.y1 - 10], [k.x1 - 6, k.y1 - 11]], {w: 2, press: 'flick'}); });
     });
-    // the title, printed in black like everything else
-    black.save(); black.textAlign = 'left'; black.fillStyle = D(1); black.font = '900 24px Fraunces, Georgia, serif'; black.fillText('I Fall in Love Too Easily', 690, 66);
+    // the title, set in type and printed in black
+    black.save(); black.globalAlpha = 1; black.textAlign = 'left'; black.fillStyle = '#000'; black.font = '900 24px Fraunces, Georgia, serif'; black.fillText('I Fall in Love Too Easily', 690, 66);
     black.font = '700 14px Fraunces, Georgia, serif'; black.fillText('a riso print for two players', 692, 88); black.restore();
     stampTo(c, print(sh, {seed: 1}), box);
   }
 
-  // ---------- marks laid on the keys while notes sound ----------
+  // ---------- marks laid on the keys while notes sound: brushed in, a little over the edges ----------
   function markKeys(c, kind, keys, PP, box){
-    P = PP;
-    const sh = Riso.sheet(box, P.S, ['paper', 'yellow', 'pink', 'blue', 'black']);
-    const [paper, yellow, pink, blue, black] = ['paper', 'yellow', 'pink', 'blue', 'black'].map(sh.ink);
+    P = PP; B.seed(kind.length * 7 + 3);
+    // only the inks this kind of mark uses (the press is the slow part)
+    const inks = ['paper', 'black', {you: 'pink', mel: 'blue', mc: 'blue', tone: 'yellow'}[kind]];
+    const sh = Riso.sheet(box, P.S, inks);
+    const dummy = document.createElement('canvas').getContext('2d');
+    const [paper, yellow, pink, blue, black] = ['paper', 'yellow', 'pink', 'blue', 'black'].map(n => inks.includes(n) ? sh.ink(n) : dummy);
     keys.forEach(k => {
       const q = k.black ? [[k.x0, k.y0 - 4], [k.x1, k.y0 - 4], [k.x1, k.y1], [k.x0, k.y1]] : k.poly;
-      shape(paper, q, 1);
-      if (k.black) shape(black, q, 1);
-      else { black.save(); P.pathOf(black, q); black.clip(); black.fillStyle = grad(black, k.x0, 0, k.x1, 0, [[0, 0], [1, 0.14]]); black.fillRect(k.x0, k.y0, k.x1 - k.x0, k.y1 - k.y0); black.restore(); }
-      if (kind === 'you') { if (k.black) knock(black, () => { P.pathOf(black, q); black.fill(); }); shape(pink, q, 1); knock(pink, () => { for (let y = k.y0 + 14; y < k.y1 - 40; y += 22) line(pink, [[k.x0 + 8, y], [k.x0 + 14, y + 4]], 2); }); }
-      if (kind === 'mel') { if (k.black) knock(black, () => { P.pathOf(black, q); black.fill(); }); shape(blue, q, 1); knock(blue, () => { for (let y = k.y0 + 14; y < k.y1 - 40; y += 22) line(blue, [[k.x0 + 8, y], [k.x0 + 14, y + 4]], 2); }); }
-      if (kind === 'mc') { if (k.black) knock(black, () => { P.pathOf(black, q); black.fill(); }); shape(blue, q, 0.4); }
+      solid(paper, q.map(([x, y], i) => [x + (i === 0 || i === 3 ? -2 : 2), y]));
+      if (k.black && kind === 'tone') solid(black, q);
+      const brush = (ink, a) => fill(ink, wob(q, 1.2), {w: k.black ? 11 : 15, ang: Math.PI / 2 + 0.03, a, over: 0.12, gap: 0.42});
+      if (kind === 'you') brush(pink, 1);
+      if (kind === 'mel') brush(blue, 1);
+      if (kind === 'mc') { if (k.black) solid(black, q); brush(blue, k.black ? 0.75 : 0.42); }
       if (kind === 'tone') {
-        const [x, y] = k.black ? [k.cx, k.y0 + 34] : [k.cx, KB.blackBottom - 42];
-        if (k.black) knock(black, () => { P.pathOf(black, P.ell(x, y, 13, 13, 20)); black.fill(); });
-        shape(yellow, P.ell(x, y, k.black ? 12 : 15, k.black ? 12 : 15, 24), 1);
-        shape(black, P.ell(x, y, 3.5, 3.5, 10), 1);
-        if (!k.black) { yellow.save(); P.pathOf(yellow, q); yellow.clip(); yellow.fillStyle = D(0.35); yellow.fillRect(k.x0, KB.blackBottom - 10, k.x1 - k.x0, k.y1 - KB.blackBottom + 10); yellow.restore(); }
+        const [x, y] = k.black ? [k.cx, k.y0 + 34] : [k.cx, KB.blackBottom - 40];
+        if (k.black) knock(black, () => { P.pathOf(black, circle(x, y, 14, 14, 20)); black.fill(); });
+        fill(yellow, circle(x, y, k.black ? 12 : 16, k.black ? 12 : 16, 24, 1.5), {w: 9, ang: 0.6, a: 1, over: 0.1});
+        dab(black, x, y, 5);
+        if (!k.black) { yellow.save(); P.pathOf(yellow, q); yellow.clip(); fill(yellow, [[k.x0, KB.blackBottom - 6], [k.x1, KB.blackBottom - 6], [k.x1, k.y1], [k.x0, k.y1]], {w: 14, ang: Math.PI / 2, a: 0.35, over: 0.2}); yellow.restore(); }
       }
-      if (!k.black) line(black, [[k.x1 + 3, k.y0], [k.x1 + 3, k.y1]], 3.2);
+      if (!k.black) stroke(black, [[k.x1 + 3, k.y0 - 2], [k.x1 + 3.5, (k.y0 + k.y1) / 2], [k.x1 + 3, k.y1 + 2]], {w: 3.4, press: 'flat'});
     });
     stampTo(c, print(sh, {seed: 2}), box);
   }
@@ -132,135 +137,135 @@
       : {font: `800 23px Fraunces, Georgia, serif`, size: 23, y: k.y1 - 12, color: lit ? '#fff7ee' : '#1e1b1d', mark: 2.6};
   }
 
-  // ---------- the cat, a ginger print, in pieces ----------
-  // ginger = solid yellow under a red tint; stripes = more red; outline and carved fur = black; socks, chest and muzzle = bare paper
+  // ---------- the cat, a ginger brush-painted print, in pieces ----------
   function piece(c, PP, box, inks, fn, seed){
-    P = PP; const sh = Riso.sheet(box, P.S, ['paper', ...inks]); const L = {}; ['paper', ...inks].forEach(n => L[n] = sh.ink(n));
+    P = PP; B.seed(seed * 101);
+    const sh = Riso.sheet(box, P.S, ['paper', ...inks]); const L = {}; ['paper', ...inks].forEach(n => L[n] = sh.ink(n));
     fn(L); stampTo(c, print(sh, {seed}), box);
   }
-  function furRows(x, pts, rows, step, len, w, a, lean = 0.5){
-    x.save(); P.pathOf(x, pts); x.clip();
-    rows.forEach(([y, x0, x1], r) => { for (let xx = x0 + (r % 2) * step / 2; xx < x1; xx += step) carve(x, xx, y, len, lean, w, a); });
-    x.restore();
-  }
+  // the long body: a soft loaf, a little lumpy
+  const BODY = (() => { const pts = [];
+    for (let i = 0; i <= 16; i++) { const u = i / 16; pts.push([52 + 456 * u, 6 - Math.sin(Math.PI * u) * 9 + Math.sin(u * 17) * 1.5]); }
+    for (let i = 1; i < 10; i++) { const a = -Math.PI / 2 + Math.PI * i / 10; pts.push([506 + Math.cos(a) * 54, 60 + Math.sin(a) * 56]); }
+    for (let i = 16; i >= 0; i--) { const u = i / 16; pts.push([52 + 456 * u, 118 - Math.sin(Math.PI * u) * 6 + Math.sin(u * 13) * 1.5]); }
+    for (let i = 1; i < 10; i++) { const a = Math.PI / 2 + Math.PI * i / 10; pts.push([54 + Math.cos(a) * 56, 60 + Math.sin(a) * 56]); }
+    return pts; })();
   const pieces = {
     body: {box: {x: -26, y: -32, w: 612, h: 184}, inner: {x0: 0, y0: 0, x1: 560, y1: 120},
       draw(c, PP, box){ piece(c, PP, box, ['yellow', 'red', 'black'], ({paper, yellow, red, black}) => {
-        const pts = [];
-        for (let i = 0; i <= 16; i++) { const u = i / 16; pts.push([52 + 456 * u, 6 - Math.sin(Math.PI * u) * 9]); }
-        for (let i = 1; i < 10; i++) { const a = -Math.PI / 2 + Math.PI * i / 10; pts.push([506 + Math.cos(a) * 54, 60 + Math.sin(a) * 56]); }
-        for (let i = 16; i >= 0; i--) { const u = i / 16; pts.push([52 + 456 * u, 118 - Math.sin(Math.PI * u) * 6]); }
-        for (let i = 1; i < 10; i++) { const a = Math.PI / 2 + Math.PI * i / 10; pts.push([54 + Math.cos(a) * 56, 60 + Math.sin(a) * 56]); }
-        shape(paper, pts, 1); shape(yellow, pts, 1);
-        red.save(); P.pathOf(red, pts); red.clip();
-        red.fillStyle = grad(red, 0, 0, 0, 120, [[0, 0.62], [0.55, 0.42], [1, 0.62]]); red.fillRect(-30, -30, 620, 190);
-        const LEN = [0.66, 0.5, 0.8, 0.58, 0.84, 0.52, 0.76, 0.62, 0.7, 0.56, 0.8];
-        for (let i = 0; i < 11; i++) { const xx = 72 + i * 40, y1 = 120 * LEN[i]; stripe(red, [[xx + 10, -12], [xx + 4, y1 * 0.4], [xx - 3, y1 * 0.75], [xx - 10, y1]], i % 3 === 1 ? 15 : 20, 1); }
+        const body = wob(BODY, 1.6, 0.04);
+        fill(paper, body, {w: 20, ang: 0, a: 1, over: 0.05, gap: 0.4});
+        fill(yellow, body, {w: 18, ang: 0.01, a: 1, over: 0.08, reach: 260, bend: 0.02});
+        // ginger: a red tint brushed along, heavier down the back and under the belly
+        fill(red, body, {w: 16, ang: -0.01, a: 0.42, over: 0, reach: 220});
+        stroke(red, [[60, 14], [300, 4], [500, 14]], {w: 22, a: 0.35, press: 'flat'});
+        // tabby stripes: loaded strokes pulled down from the spine, running out
+        const LEN = [0.62, 0.48, 0.78, 0.55, 0.82, 0.5, 0.74, 0.6, 0.68, 0.54, 0.78];
+        red.save(); P.pathOf(red, body); red.clip();
+        LEN.forEach((f, i) => { const xx = 74 + i * 40 + P.rnd(-4, 4), y1 = 120 * f; stroke(red, [[xx + 10, -4], [xx + 3, y1 * 0.45], [xx - 9, y1]], {w: i % 3 === 1 ? 15 : 20, press: 'flick', load: 1.3}); });
         red.restore();
-        // a pale chest and belly: bare paper
-        const belly = P.curve([[300, 104], [420, 92], [500, 76], [540, 96], [500, 124], [300, 124]], true, 6);
-        [yellow, red].forEach(x => knock(x, () => { P.pathOf(x, belly); x.fill(); }));
-        // carved fur: rows of little marks, thicker toward the shadowed belly
-        black.save(); P.pathOf(black, pts); black.clip();
-        for (let i = 0; i < 46; i++) { const xx = 40 + ((i * 97) % 460), yy = 64 + ((i * 53) % 46); carve(black, xx, yy, 8, 0.9, 1.4, 0.9); carve(black, xx + 5, yy, 8, -0.9 + Math.PI, 1.4, 0.9); }
-        black.restore();
-        // the outline, heavy underneath
-        line(black, pts.concat([pts[0]]), 4.2);
-        line(black, pts.slice(17 + 9, 17 + 9 + 17), 7);
+        // a pale belly: the ink lifted off with a brush
+        [yellow, red].forEach(x => knock(x, () => { stroke(x, [[300, 112], [420, 102], [520, 86]], {w: 22, press: 'swell'}); stroke(x, [[340, 118], [500, 104]], {w: 14, press: 'flick'}); }));
+        // a few fur flicks along the shadowed side
+        for (let i = 0; i < 26; i++) { const xx = 50 + (i * 97) % 450, yy = 76 + (i * 31) % 32; flick(black, xx, yy, xx + 7, yy + 8, 2.4, 0.9); }
+        // the outline: a few strokes, heavier underneath
+        contour(black, body, {w: 4.4, pieces: 6});
+        stroke(black, body.slice(27, 42), {w: 6.5, press: 'swell'});
       }, 3); }},
     leg: {box: {x: -10, y: -6, w: 56, h: 316}, inner: {x0: 0, y0: 0, x1: 36, y1: 300}, draw: legDraw(0)},
     legHind: {box: {x: -10, y: -6, w: 56, h: 316}, inner: {x0: 0, y0: 0, x1: 36, y1: 300}, draw: legDraw(0.18)},
     paw: {box: {x: -36, y: -26, w: 72, h: 50}, draw: pawDraw(false)},
     pawExtra: {box: {x: -36, y: -42, w: 72, h: 66}, draw: pawDraw(true)},
     tailUp: {box: {x: -160, y: -224, w: 200, h: 260},
-      draw(c, PP, box){ piece(c, PP, box, ['yellow', 'red', 'black'], L => tailDraw(L, PP.bez([0, 0], [-74, -6], [-114, -120], [-58, -178], 26), t => 30 - 15 * t), 5); }},
+      draw(c, PP, box){ piece(c, PP, box, ['yellow', 'red', 'black'], L => tailDraw(L, [[0, 0], [-62, -10], [-104, -70], [-96, -150], [-58, -180]]), 5); }},
     tailDown: {box: {x: -8, y: -6, w: 44, h: 316}, inner: {x0: 0, y0: 0, x1: 28, y1: 300},
       draw(c, PP, box){ piece(c, PP, box, ['yellow', 'red', 'black'], ({paper, yellow, red, black}) => {
-        const q = [[0, 0], [28, 0], [28, 300], [0, 300]];
-        shape(paper, q); shape(yellow, q); shape(red, q, 0.5);
-        for (let y = 26; y < 300; y += 34) stripe(red, [[-2, y], [14, y + 4], [30, y]], 11, 1);
-        line(black, [[0, 0], [0, 300]], 3); line(black, [[28, 0], [28, 300]], 5);
+        const q = [[0, -4], [28, -4], [28, 304], [0, 304]];
+        fill(paper, q, {w: 12, ang: Math.PI / 2, a: 1, over: 0.02}); fill(yellow, q, {w: 12, ang: Math.PI / 2, a: 1, over: 0.04}); fill(red, q, {w: 10, ang: Math.PI / 2, a: 0.48, over: 0});
+        for (let y = 26; y < 300; y += 34) flick(red, -2, y, 30, y + 5, 11, 1, 3);
+        stroke(black, [[0, -4], [-0.5, 150], [0, 304]], {w: 3.4, press: 'flat'}); stroke(black, [[28, -4], [28.5, 150], [28, 304]], {w: 5, press: 'flat'});
       }, 6); }},
     tailTip: {box: {x: -22, y: -22, w: 44, h: 44},
-      draw(c, PP, box){ piece(c, PP, box, ['red', 'black'], ({paper, red, black}) => { const e = PP.ell(0, 0, 15, 13, 24); shape(paper, e); shape(red, e, 1); line(black, e.concat([e[0]]), 3.5); }, 7); }},
+      draw(c, PP, box){ piece(c, PP, box, ['red', 'black'], ({paper, red, black}) => { const e = circle(0, 0, 14, 12, 20, 0.8); fill(paper, e, {w: 8, a: 1}); fill(red, e, {w: 8, ang: 0.4, a: 1}); contour(black, e, {w: 3.4, pieces: 3}); }, 7); }},
     head: {box: {x: -160, y: -175, w: 320, h: 260},
       eyes: [[-27, -16, 15], [27, -16, 15]],
       draw(c, PP, box){ piece(c, PP, box, ['yellow', 'pink', 'red', 'black'], ({paper, yellow, pink, red, black}) => {
-        const {curve, ell} = PP;
-        const head = curve([[-70, 4], [-62, -42], [-30, -62], [30, -62], [62, -42], [70, 4], [52, 46], [0, 60], [-52, 46]], true, 10);
-        const earL = [[-60, -34], [-52, -112], [-10, -60]], earR = [[10, -60], [52, -112], [60, -34]];
-        // ears: ginger with fluorescent pink insides
-        [earL, earR].forEach(e => { shape(paper, e); shape(yellow, e); shape(red, e, 0.55); });
-        shape(pink, [[-48, -46], [-46, -92], [-20, -60]], 1); shape(pink, [[20, -60], [46, -92], [48, -46]], 1);
-        [earL, earR].forEach(e => line(black, e.concat([e[0]]), 3.6));
-        shape(paper, head); shape(yellow, head);
-        red.save(); P.pathOf(red, head); red.clip(); red.fillStyle = D(0.5); red.fillRect(-80, -80, 160, 160);
-        // forehead stripes and cheek flashes
-        [-20, 0, 20].forEach(dx => stripe(red, [[dx, -66], [dx * 1.1, -48], [dx * 0.9, -32]], 11, 1));
-        [[-1, -2], [1, -2]].forEach(([s, dy]) => { stripe(red, [[s * 74, dy], [s * 58, dy + 6], [s * 46, dy + 4]], 10, 1); stripe(red, [[s * 74, dy + 18], [s * 60, dy + 22], [s * 50, dy + 20]], 8, 1); });
+        const head = wob(P.curve([[-70, 4], [-63, -40], [-32, -62], [28, -63], [62, -40], [71, 6], [52, 46], [2, 61], [-52, 45]], true, 8), 1.4);
+        const earL = wob([[-60, -32], [-56, -76], [-50, -112], [-30, -84], [-10, -60]], 1.5), earR = wob([[10, -60], [30, -86], [53, -114], [58, -74], [62, -32]], 1.5);
+        // ears: ginger, pink inside
+        [earL, earR].forEach(e => { fill(paper, e, {w: 10, ang: 1.2, a: 1, over: 0.05}); fill(yellow, e, {w: 10, ang: 1.2, a: 1, over: 0.05}); fill(red, e, {w: 9, ang: 1.0, a: 0.5}); });
+        stroke(pink, [[-44, -50], [-45, -74], [-42, -94]], {w: 12, press: 'flick'}); stroke(pink, [[44, -50], [46, -74], [44, -94]], {w: 12, press: 'flick'});
+        [earL, earR].forEach(e => contour(black, e, {w: 3.6, pieces: 2}));
+        // the head, worked round
+        fill(paper, head, {w: 14, ang: 0.2, a: 1, over: 0.04});
+        fill(yellow, head, {w: 13, ang: 0.25, a: 1, over: 0.06});
+        fill(red, head, {w: 12, ang: -0.3, a: 0.45, over: 0});
+        red.save(); P.pathOf(red, head); red.clip();
+        [-20, 0, 20].forEach(dx => stroke(red, [[dx, -68], [dx * 1.1, -50], [dx * 0.85, -32]], {w: 11, press: 'flick'}));
+        [-1, 1].forEach(s => { flick(red, s * 76, -4, s * 46, 2, 10, 1, 2); flick(red, s * 76, 14, s * 50, 20, 8, 1, 2); });
         red.restore();
-        // a bare-paper muzzle
-        const muz = ell(0, 30, 36, 24, 26);
-        [yellow, red].forEach(x => knock(x, () => { P.pathOf(x, muz); x.fill(); }));
-        // owl eyes: big yellow discs in a heavy black ring
+        // a bare muzzle: lifted with the brush
+        [yellow, red].forEach(x => knock(x, () => { fill(x, circle(0, 30, 34, 22, 24, 1.5), {w: 10, ang: 0.1, a: 1, over: 0.05}); }));
+        // owl eyes: yellow worked round, then a heavy ring
         cat.eyes.forEach(([x, y, r]) => {
-          [red].forEach(L => knock(L, () => { P.pathOf(L, ell(x, y, r + 7, r + 7, 30)); L.fill(); }));
-          shape(yellow, ell(x, y, r + 5, r + 5, 30), 1); shape(pink, ell(x - 2, y + 3, r + 5, r + 5, 30), 0.28);
-          line(black, ell(x, y, r + 6, r + 6, 30).concat([ell(x, y, r + 6, r + 6, 30)[0]]), 4.5);
+          knock(red, () => { P.pathOf(red, circle(x, y, r + 7, r + 7, 24)); red.fill(); });
+          fill(yellow, circle(x, y, r + 5, r + 5, 24, 0.6), {w: 8, ang: 0.8, a: 1, over: 0.05});
+          dab(pink, x - 2, y + 4, r, 0.28);
+          contour(black, circle(x, y, r + 6, r + 6, 30, 0.8), {w: 5, pieces: 3});
         });
-        // carved brow marks: worried, curious
-        carve(black, -30, -48, 16, -0.45, 2.6, 1); carve(black, 30, -48, 16, 0.45, 2.6, 1);
-        // nose and mouth
-        const nose = [[-9, 18], [9, 18], [0, 28]]; shape(pink, nose, 1); line(black, nose.concat([nose[0]]), 2.2);
-        line(black, [[0, 28], [0, 35], [-9, 41], [-17, 37]], 3); line(black, [[0, 35], [9, 41], [17, 37]], 3);
-        // the outline
-        line(black, head.concat([head[0]]), 4.4);
-        // whiskers
-        [[-1, 26, -0.12], [-1, 33, 0.03], [-1, 40, 0.16], [1, 26, -0.12], [1, 33, 0.03], [1, 40, 0.16]].forEach(([s, dy, a]) => line(black, PP.quad([s * 34, dy], [s * 80, dy + a * 50 - 4], [s * 128, dy + a * 104 - 8], 10), 1.8));
+        flick(black, -44, -50, -18, -44, 3.4, 1, -2); flick(black, 44, -50, 18, -44, 3.4, 1, -2);    // curious brows
+        // nose, mouth, whiskers
+        dab(pink, 0, 22, 9, 1, 0); contour(black, [[-9, 18], [9, 18], [0, 28]], {w: 2.2, pieces: 1});
+        stroke(black, [[0, 28], [0, 35], [-9, 41], [-17, 37]], {w: 3.2, press: 'swell'}); stroke(black, [[0, 35], [9, 41], [17, 37]], {w: 3.2, press: 'swell'});
+        contour(black, head, {w: 4.6, pieces: 5});
+        [[-1, 26, -0.12], [-1, 33, 0.03], [-1, 40, 0.16], [1, 26, -0.12], [1, 33, 0.03], [1, 40, 0.16]].forEach(([s, dy, a]) => stroke(black, [[s * 34, dy], [s * 80, dy + a * 50 - 4], [s * 128, dy + a * 104 - 8]], {w: 2.2, press: 'flick', hairs: 5}));
       }, 8); }},
   };
   function legDraw(dark){
     return (c, PP, box) => piece(c, PP, box, ['yellow', 'red', 'black'], ({paper, yellow, red, black}) => {
-      const q = [[0, 0], [36, 0], [36, 300], [0, 300]];
-      shape(paper, q); shape(yellow, q);
-      red.fillStyle = grad(red, 0, 0, 36, 0, [[0, 0.35 + dark], [1, 0.7 + dark]]); P.pathOf(red, q); red.fill();
-      [70, 132].forEach((y, i) => stripe(red, [[38, y - 6], [24, y + 2], [10, y + 4], [2, y + 1]], i ? 9 : 12, 1));
-      // white socks: the bottom of each leg is bare paper
-      [yellow, red].forEach(x => knock(x, () => x.fillRect(-2, 236, 40, 70)));
-      black.save(); P.pathOf(black, q); black.clip();
-      carve(black, 26, 40, 12, 1.9, 1.6, 0.9); carve(black, 22, 196, 10, 1.9, 1.5, 0.8);
-      if (dark) { black.fillStyle = D(dark); black.fillRect(0, 0, 36, 300); }
-      black.restore();
-      line(black, [[0, -4], [0, 304]], 3); line(black, [[36, -4], [36, 304]], 5);
+      const q = [[0, -4], [36, -4], [36, 304], [0, 304]];
+      fill(paper, q, {w: 14, ang: Math.PI / 2, a: 1, over: 0.02});
+      fill(yellow, q, {w: 14, ang: Math.PI / 2, a: 1, over: 0.04});
+      fill(red, q, {w: 12, ang: Math.PI / 2, a: 0.4 + dark, over: 0});
+      stroke(red, [[30, -4], [30, 304]], {w: 10, a: 0.45, press: 'flat'});
+      [70, 132].forEach((y, i) => flick(red, 40, y - 6, 2, y + 4, i ? 9 : 12, 1, 3));
+      // white socks: the ink lifted off the bottom of the leg
+      [yellow, red].forEach(x => knock(x, () => fill(x, [[-4, 240], [40, 236], [40, 310], [-4, 310]], {w: 14, ang: 0.05, a: 1, over: 0.3})));
+      flick(black, 26, 34, 20, 48, 2.4); flick(black, 22, 190, 16, 204, 2.2);
+      if (dark) fill(red, [[0, -4], [36, -4], [36, 236], [0, 236]], {w: 12, ang: Math.PI / 2, a: dark * 2, over: 0});
+      stroke(black, [[0, -4], [-0.6, 150], [0, 304]], {w: 3.4, press: 'flat'}); stroke(black, [[36, -4], [36.6, 150], [36, 304]], {w: 5.4, press: 'flat'});
     }, dark ? 10 : 9);
   }
   function pawDraw(extra){
     return (c, PP, box) => piece(c, PP, box, ['yellow', 'pink', 'black'], ({paper, yellow, pink, black}) => {
-      const p = PP.ell(0, 0, 24, 15, 30);
+      const p = circle(0, 0, 24, 15, 24, 0.8);
       if (extra) {   // the extra leg wears a fluorescent payal with little yellow bells
-        const band = [[-19, -32], [19, -32], [19, -20], [-19, -20]];
-        shape(paper, band); shape(pink, band, 1); [-12, -4, 4, 12].forEach(x => { shape(paper, PP.ell(x, -17, 3.6, 3.6, 10)); shape(yellow, PP.ell(x, -17, 3.6, 3.6, 10), 1); });
-        line(black, band.concat([band[0]]), 2);
+        stroke(paper, [[-20, -26], [20, -26]], {w: 13, press: 'flat'}); stroke(pink, [[-20, -26], [20, -26]], {w: 12, press: 'flat'});
+        [-12, -4, 4, 12].forEach(x => { dab(paper, x, -17, 4); dab(yellow, x, -17, 4); });
       }
-      shape(paper, p); black.fillStyle = grad(black, 0, -15, 0, 15, [[0, 0], [1, 0.18]]); P.pathOf(black, p); black.fill();
-      line(black, p.concat([p[0]]), 4);
-      [-8, 0, 8].forEach(dx => line(black, [[dx, 14], [dx * 1.1, 6]], 2.6));
+      fill(paper, p, {w: 9, ang: 0.1, a: 1, over: 0.02}); stroke(black, [[-20, 8], [0, 13], [20, 8]], {w: 7, a: 0.18, press: 'swell'});
+      contour(black, p, {w: 4, pieces: 3});
+      [-8, 0, 8].forEach(dx => flick(black, dx, 14, dx * 1.1, 6, 2.8));
     }, extra ? 12 : 11);
   }
-  function tailDraw({paper, yellow, red, black}, ln, wFn){
-    const n = ln.length, sh = P.ribbon(ln, wFn);
-    shape(paper, sh); shape(yellow, sh); shape(red, sh, 0.5);
-    red.save(); P.pathOf(red, sh); red.clip();
-    [0.2, 0.34, 0.48, 0.62, 0.76, 0.9].forEach(t => { const i = Math.round(t * (n - 1)), [x, y] = ln[i], [px, py] = ln[i - 1], [nx, ny] = ln[Math.min(n - 1, i + 1)];
-      const dx = nx - px, dy = ny - py, l = Math.hypot(dx, dy) || 1, w = wFn(t) / 2 + 3;
-      stripe(red, [[x - dy / l * w, y + dx / l * w], [x + dx / l * 3, y + dy / l * 3], [x + dy / l * w, y - dx / l * w]], 10, 1); });
-    red.restore();
-    line(black, sh.concat([sh[0]]), 3.8);
+  // the tail is one long loaded stroke, ginger over paper, with rings flicked across
+  function tailDraw({paper, yellow, red, black}, ctrl){
+    const taper = t => (1 - 0.5 * t) * Math.min(1, t * 12 + 0.3);
+    stroke(paper, ctrl, {w: 30, press: taper, load: 3, wobble: 0.01});
+    stroke(yellow, ctrl, {w: 29, press: taper, load: 3, wobble: 0.01});
+    stroke(red, ctrl, {w: 26, a: 0.45, press: taper, load: 3});
+    const pts = B.path(ctrl, 4), n = pts.length;
+    [0.24, 0.38, 0.52, 0.66, 0.8, 0.92].forEach(t => { const i = Math.min(n - 2, Math.round(t * (n - 1))), [x, y] = pts[i], [nx, ny] = pts[i + 1], dx = nx - x, dy = ny - y, l = Math.hypot(dx, dy) || 1, w = 15 * taper(t) + 2;
+      flick(red, x - dy / l * w, y + dx / l * w, x + dy / l * w, y - dx / l * w, 10, 1, 2); });
+    // its edges: two strokes, not one closed line
+    const side = s => pts.map(([x, y], i) => { const [ax, ay] = pts[Math.max(0, i - 1)], [bx, by] = pts[Math.min(n - 1, i + 1)], dx = bx - ax, dy = by - ay, l = Math.hypot(dx, dy) || 1, w = 15 * taper(i / (n - 1)); return [x - dy / l * w * s, y + dx / l * w * s]; });
+    stroke(black, side(1).filter((_, i) => i % 3 === 0), {w: 4.2, press: 'swell'}); stroke(black, side(-1).filter((_, i) => i % 3 === 0), {w: 3.4, press: 'swell'});
+    dab(black, ...pts[n - 1], 9, 1, 1);
   }
 
   const cat = {floor: 336, thick: 112, restLen: 300, pad: 46, minLen: 250, headIn: 34, headDrop: 26, legW: 36, tailW: 28,
     eyes: pieces.head.eyes, pupil: '#1e1b1d', pieces};
 
   Duo.register({id: 'riso', name: 'Riso print', seed: 21, KB, paint, markKeys, needsFonts: true, label, cat, painterly: false,
-    alt: 'A risograph print in red, yellow, blue, black and fluorescent pink: a red Casio keyboard under a big sun, and a long ginger cat with owl eyes standing on it, its legs dropping straight down onto the keys'});
+    alt: 'A brush-painted risograph print in red, yellow, blue, black and fluorescent pink: a red Casio keyboard under a big sun, and a long ginger cat with owl eyes standing on it, its legs dropping straight down onto the keys'});
 })();

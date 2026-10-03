@@ -21,17 +21,89 @@ window.Riso = (function () {
     }
   })();
 
+  // ---- the press on the GPU: the same rules as the JS press below, as one fragment shader (fast) ----
+  let gl = null, glCv = null, prog = null, glFailed = false;
+  const FS = `#version 300 es
+  precision highp float;
+  uniform sampler2D ink[5]; uniform sampler2D paperTex;
+  uniform vec3 col[5]; uniform float ang[5]; uniform vec2 mis[5]; uniform int nInk; uniform int hasPaper;
+  uniform vec2 size; uniform float cell; uniform float solid; uniform vec3 paperCol; uniform float seed;
+  out vec4 outC;
+  float hash(vec2 p){ p = fract(p * vec2(123.34, 456.21) + seed); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+  float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y); }
+  float dens(int i, vec2 uv){ if (i == 0) return texture(ink[0], uv).a; if (i == 1) return texture(ink[1], uv).a; if (i == 2) return texture(ink[2], uv).a; if (i == 3) return texture(ink[3], uv).a; return texture(ink[4], uv).a; }
+  void main(){
+    vec2 px = vec2(gl_FragCoord.x, size.y - gl_FragCoord.y);
+    vec3 c = vec3(1.0); float A = 0.0;
+    for (int i = 0; i < 5; i++) {
+      if (i >= nInk) break;
+      vec2 q = px - mis[i];
+      if (q.x < 0.0 || q.y < 0.0 || q.x >= size.x || q.y >= size.y) continue;
+      float d = dens(i, q / size); if (d < 0.02) continue;
+      float nz = 0.6 * vnoise(px / 16.0 + float(i) * 7.3) + 0.4 * hash(px + float(i) * 3.1);
+      float cov;
+      if (d >= solid) cov = 0.8 + 0.2 * min(1.0, nz * 1.6);
+      else { float a = ang[i]; vec2 r = vec2(px.x * cos(a) + px.y * sin(a), -px.x * sin(a) + px.y * cos(a)) / cell;
+        float t = 0.5 - (cos(6.2831853 * r.x) + cos(6.2831853 * r.y)) * 0.25;
+        cov = clamp((d * 1.04 - t) / 0.09 + 0.5, 0.0, 1.0) * (0.86 + 0.14 * nz); }
+      if (nz > 0.93) cov *= 0.3;
+      c *= 1.0 - cov * (1.0 - col[i]); A = 1.0 - (1.0 - A) * (1.0 - cov);
+    }
+    float p = hasPaper == 1 ? texture(paperTex, px / size).a : 0.0;
+    if (p > 0.0) { float tooth = 0.965 + 0.035 * vnoise(px / 3.0); vec3 o = paperCol * c * tooth; float a = max(p, A); outC = vec4(o * a, a); }
+    else if (A > 0.0) { vec3 o = max(vec3(0.0), (c - (1.0 - A)) / A); outC = vec4(o * A, A); }
+    else outC = vec4(0.0);
+  }`;
+  const VS = `#version 300 es
+  in vec2 p; void main(){ gl_Position = vec4(p, 0.0, 1.0); }`;
+  function glInit(){
+    if (gl || glFailed) return !!gl;
+    try {
+      glCv = document.createElement('canvas'); gl = glCv.getContext('webgl2', {premultipliedAlpha: true, preserveDrawingBuffer: true, antialias: false});
+      if (!gl) throw new Error('no webgl2');
+      const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
+      prog = gl.createProgram(); gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS)); gl.linkProgram(prog);
+      if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+      gl.useProgram(prog);
+      const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+      const loc = gl.getAttribLocation(prog, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+      return true;
+    } catch (e) { console.warn('riso press falls back to JS:', e.message); gl = null; glFailed = true; return false; }
+  }
+  function glPrint(layers, w, h, S, o){
+    if (!glInit()) return null;
+    glCv.width = w; glCv.height = h; gl.viewport(0, 0, w, h);
+    const names = Object.keys(layers).filter(n => n !== 'paper').slice(0, 5), U = n => gl.getUniformLocation(prog, n);
+    const tex = (unit, canvas) => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
+      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; };
+    const made = [];
+    names.forEach((n, i) => { made.push(tex(i, layers[n].c)); gl.uniform1i(U(`ink[${i}]`), i); gl.uniform3fv(U(`col[${i}]`), rgb(INKS[n])); gl.uniform1f(U(`ang[${i}]`), (ANG[n] || 0) * Math.PI / 180);
+      const m = (o.misreg || {})[n] || [0, 0]; gl.uniform2f(U(`mis[${i}]`), Math.round(m[0] * S / 2), Math.round(m[1] * S / 2)); });
+    for (let i = names.length; i < 5; i++) gl.uniform1i(U(`ink[${i}]`), 0);
+    if (layers.paper) { made.push(tex(5, layers.paper.c)); gl.uniform1i(U('paperTex'), 5); gl.uniform1i(U('hasPaper'), 1); } else { gl.uniform1i(U('paperTex'), 0); gl.uniform1i(U('hasPaper'), 0); }
+    gl.uniform1i(U('nInk'), names.length); gl.uniform2f(U('size'), w, h); gl.uniform1f(U('cell'), (o.cell ?? 5.2) * S / 2); gl.uniform1f(U('solid'), o.solid ?? 0.9);
+    gl.uniform3fv(U('paperCol'), rgb(o.paper || '#f3ead7')); gl.uniform1f(U('seed'), ((o.seed || 0) * 0.137) % 1);
+    gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    const out = document.createElement('canvas'); out.width = w; out.height = h; out.getContext('2d').drawImage(glCv, 0, 0);
+    made.forEach(t => gl.deleteTexture(t));
+    return out;
+  }
+
   // a set of ink layers covering a logical box, at scale S
   function sheet(box, S, inks){
     const w = Math.ceil(box.w * S), h = Math.ceil(box.h * S), layers = {};
     (inks || Object.keys(INKS)).forEach(name => {
-      const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d', {willReadFrequently: true});
+      const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d');
       x.setTransform(S, 0, 0, S, -box.x * S, -box.y * S); x.fillStyle = '#000'; x.strokeStyle = '#000'; x.lineCap = 'round'; x.lineJoin = 'round';
       layers[name] = {c, x};
     });
     return {w, h, S, box, ink: name => layers[name].x, layers,
       // lay the inks down; paper (a colour) fills where the 'paper' layer is drawn; otherwise the print is transparent
       print(o = {}){
+        if (!o.cpu) { const g = glPrint(layers, w, h, S, o); if (g) return g; }
         const out = document.createElement('canvas'); out.width = w; out.height = h; const ox = out.getContext('2d');
         const img = ox.createImageData(w, h), d = img.data, n = w * h;
         const R = new Float32Array(n).fill(1), G = new Float32Array(n).fill(1), B = new Float32Array(n).fill(1), A = new Float32Array(n);

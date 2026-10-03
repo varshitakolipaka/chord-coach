@@ -1,0 +1,12 @@
+<!doctype html><html><body style="margin:0;background:#fff"><canvas id=c width=2000 height=1000 style="width:1000px"></canvas>
+<script src="../bristle.js"></script><script>
+const c=document.getElementById('c').getContext('2d');c.scale(2,2);Bristle.seed(4);const t=performance.now();
+Bristle.stroke(c,[[40,60],[200,40],[380,80]],{w:22});
+Bristle.stroke(c,[[40,130],[220,120],[400,150]],{w:10,press:'flick'});
+Bristle.stroke(c,[[40,200],[400,200]],{w:40,a:0.5});
+const blob=Bristle.wobble(Array.from({length:40},(_,i)=>[700+170*Math.cos(i/40*6.28),180+110*Math.sin(i/40*6.28)]),6);
+Bristle.fill(c,blob,{w:16,ang:0.15});Bristle.contour(c,blob,{w:6});
+const blob2=Array.from({length:40},(_,i)=>[250+170*Math.cos(i/40*6.28),400+90*Math.sin(i/40*6.28)]);
+Bristle.fill(c,blob2,{w:12,ang:-0.5,a:0.45});
+window.ms=performance.now()-t;
+</script></body></html>
