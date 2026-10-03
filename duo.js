@@ -162,7 +162,7 @@
 
   // the toolkit each personality paints with
   const P = {W, H, BLACK, rand, rnd, pick, pathOf, ell, bez, quad, curve, ribbon, taper, calli, outline, inkline, shade, fill, clipTo, jag, texture, streaks, halftone, grain, brushLayer,
-             get brushOk(){ return brushReady(); }};
+             get brushOk(){ return brushReady(); }, get S(){ return S; }};
   Duo.P = P;
   Duo.register = s => { Duo.skins[s.id] = s; if (!Duo.order.includes(s.id)) Duo.order.push(s.id); };
 
@@ -183,7 +183,7 @@
     for (const kind of KINDS) for (const black of [false, true]) {
       const sh = document.createElement('canvas'); sh.width = Math.ceil(box.w * S); sh.height = Math.ceil(box.h * S);
       const sc = sh.getContext('2d'); sc.setTransform(S, 0, 0, S, -box.x * S, -box.y * S);
-      skin.markKeys(sc, kind, black ? K.blacks : K.whites, P);
+      skin.markKeys(sc, kind, black ? K.blacks : K.whites, P, box);
       sheets[kind + (black ? 'B' : 'W')] = flatSheets[kind + (black ? 'B' : 'W')] = sh;
     }
     Duo.box = box;
@@ -192,13 +192,13 @@
     Object.entries(skin.cat.pieces).forEach(([name, pc]) => {
       const cv2 = document.createElement('canvas'); cv2.width = Math.ceil(pc.box.w * S); cv2.height = Math.ceil(pc.box.h * S);
       const pcx = cv2.getContext('2d'); pcx.setTransform(S, 0, 0, S, -pc.box.x * S, -pc.box.y * S);
-      pc.draw(pcx, P);
+      pc.draw(pcx, P, pc.box);
       flatPieces[name] = cv2;
       pieces[name] = {img: withAfter(cv2, pc), box: pc.box, inner: pc.inner};
     });
     headSprite = pieces.head.img;
     Duo.flatMs = performance.now() - t0;
-    if (!window.Painter) return;
+    if (!window.Painter || skin.painterly === false) { if (skin.after) { const ac = base.getContext('2d'); ac.setTransform(S, 0, 0, S, 0, 0); skin.after(ac, P); } Duo.paintMs = performance.now() - t0; return; }
     // the painting, in the background
     const cancelled = () => token !== paintToken;
     const opt = o => Object.assign({scale: S, seed: 3}, skin.painter || {}, o || {});
@@ -449,7 +449,10 @@
       catCv.setAttribute('aria-hidden', 'true');
       host.innerHTML = ''; wrap.appendChild(cv); wrap.appendChild(catCv); host.appendChild(wrap);
       Duo.ok = true;
-      Duo.setSkin(o.skin);
+      const want = Duo.skins[o.skin] || Duo.skins[Duo.order[0]];
+      // a skin that prints words into its picture waits (briefly) for the type to arrive
+      if (want && want.needsFonts && document.fonts && document.fonts.status !== 'loaded') { skin = want; Promise.race([document.fonts.ready, new Promise(r => setTimeout(r, 1200))]).then(() => Duo.setSkin(want.id)); }
+      else Duo.setSkin(o.skin);
       let raf = 0; const re = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(resize); };
       window.addEventListener('resize', re); if (window.ResizeObserver) new ResizeObserver(re).observe(host);
       if (document.fonts) document.fonts.ready.then(render);

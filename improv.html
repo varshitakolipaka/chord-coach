@@ -135,6 +135,11 @@
   /* the painting: a still picture; only the keys change */
   body.duo #kb{max-width:1000px;width:min(100%, calc((100vh - 290px) * 1.43))}
   @media (orientation: portrait){ body.duo .stage{justify-content:space-evenly} body.duo #chord{font-size:min(30vw,168px)} }
+  /* Riso: cream stock, fluorescent pink for you, misregistered headline */
+  body.skin-riso{--paper:#efe6d2;--ink:#1e1b1d;--red:#ff4fa8;--dim:#958b78;--line:#d9ccb2;background:#efe6d2}
+  body.skin-riso #chord{text-shadow:.045em .03em 0 rgba(255,79,168,.75),-.03em -.02em 0 rgba(15,111,191,.45)}
+  body.skin-riso .strip .bar.now{background:#0f6fbf;color:#fff7ee} body.skin-riso .strip .bar.now.you{background:#ff4fa8}
+  body.skin-riso #bar .sw{box-shadow:inset 0 0 0 2px var(--ink),3px 3px 0 #ffcd2e}
   /* Kalighat: buff mill paper, lamp black, vermilion */
   body.skin-kalighat{--paper:#efe2c4;--ink:#15110e;--red:#cf3a22;--dim:#8a7f69;--line:#d4c39f;
     background:radial-gradient(120% 90% at 50% 35%,#f4e9cf 0%,#efe2c4 55%,#e2d0a8 100%) fixed #efe2c4}
@@ -177,6 +182,11 @@
     <button id="closeBtn" aria-label="Close settings">✕</button>
   </div>
   <div class="drawer-body">
+
+    <details class="grp">
+      <summary><span class="t">Look</span><span class="v" id="sum-look"></span></summary>
+      <div class="in"><div class="chips" id="look"><div class="chip" data-look="riso">Riso print</div><div class="chip" data-look="kalighat">Oil painting</div></div></div>
+    </details>
 
     <details class="grp" open>
       <summary><span class="t">Practise</span><span class="v" id="sum-seq"></span></summary>
@@ -239,7 +249,7 @@
         <label class="toggle"><input id="comp" type="checkbox" checked> App plays the chords in pause mode</label>
         <label class="toggle"><input id="local" type="checkbox"> Also sound notes on this device</label>
         <p class="note">Left hand below middle C plays the chords; right hand plays the melody. Drums come from this device's speaker.</p>
-        <p class="note">Drums: Jazz and Brush kits from the FluidR3 GM soundfont by Frank Wen (MIT). Type: Fraunces (Undercase Type, SIL OFL). Picture: after the Kalighat bazaar paintings of 19th-century Calcutta, painted in code. Melodies: Magenta ImprovRNN (Google, Apache 2.0).</p>
+        <p class="note">Drums: Jazz and Brush kits from the FluidR3 GM soundfont by Frank Wen (MIT). Type: Fraunces (Undercase Type, SIL OFL). Pictures: a risograph print and an oil painting (after the Kalighat bazaar paintings of 19th-century Calcutta), both made in code. Melodies: Magenta ImprovRNN (Google, Apache 2.0).</p>
       </div>
     </details>
   </div>
@@ -248,7 +258,9 @@
 <script src="magentamusic.js"></script>
 <script src="rough.js"></script>
 <script src="painter.js"></script>
+<script src="riso.js"></script>
 <script src="duo.js"></script>
+<script src="skins/riso.js"></script>
 <script src="skins/kalighat.js"></script>
 <!-- painted stage (p5.brush) is still in the lab: <script src="brush.js"></script><script src="stage.js"></script> -->
 <script src="seq.js"></script>
@@ -942,6 +954,7 @@ function summarise(){
   $('sum-mag').textContent = on('stick') + ', adventure ' + (+$('temp').value).toFixed(1) + ', answers ' + $('minV').textContent + '–' + $('maxV').textContent;
   $('sum-band').textContent = on('style') + ' at ' + $('tempo').value + ' bpm' + ($('bassOn').checked ? ', with bass' : '');
   $('sum-tones').textContent = 'Chords: ' + on('tones-pad') + ', Magenta: ' + on('tones-mel');
+  $('sum-look').textContent = on('look');
 }
 $('drawer').addEventListener('click', () => setTimeout(summarise, 0));
 $('drawer').addEventListener('input', () => setTimeout(summarise, 0));
@@ -1296,12 +1309,12 @@ function worldSource(){
   return {leftU, rightU, pressL: magTurn && left.length > 0, pressR: magTurn && right.length > 0, color: css('--mel'),
           playing, still: reducedMotion, beat: beats - Math.floor(beats), bar: (beats % 4) / 4};
 }
-if (window.Duo && Duo.init($('kb'), {label: sar, skin: 'kalighat'})) document.body.classList.add('duo');
-else if (window.Stage) Stage.init($('kb'), {
-  colors: {you: css('--you'), mel: css('--mel'), magchord: css('--magchord')},
-  label: (pc, black) => black ? sar(pc).replace('komal ', 'k').replace('tivra ', 't') : sar(pc).replace('komal ', 'k ').replace('tivra ', 't '),
-  source: stageSource,
-});
+let look = 'riso'; try { look = localStorage.getItem('look') || 'riso'; } catch (e) {}
+if (window.Duo && Duo.init($('kb'), {label: sar, skin: look})) document.body.classList.add('duo');
+document.querySelectorAll('#look .chip').forEach(el => { el.classList.toggle('on', el.dataset.look === look);
+  el.onclick = () => { look = el.dataset.look; try { localStorage.setItem('look', look); } catch (e) {}
+    document.querySelectorAll('#look .chip').forEach(x => x.classList.toggle('on', x === el)); summarise(); setTimeout(() => Duo.setSkin(look), 30); }; });
+summarise();
 draw();
 </script>
 </body>
