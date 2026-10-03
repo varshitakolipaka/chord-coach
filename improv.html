@@ -218,8 +218,8 @@
       <div class="in stack">
         <div class="field"><div class="fl">Who plays</div>
           <div class="chips" id="mode"><div class="chip on" data-m="trade">Take turns</div><div class="chip" data-m="solo">Magenta solos</div></div></div>
-        <div class="field"><div class="fl">Your turn ends</div>
-          <div class="chips" id="endMode"><div class="chip on" data-e="all">After every chord</div><div class="chip" data-e="pause">On a pause</div></div></div>
+        <div class="field"><div class="fl">How you trade</div>
+          <div class="chips" id="endMode"><div class="chip on" data-e="chord">Each chord: you, then Magenta</div><div class="chip" data-e="all">The whole sequence, then Magenta</div><div class="chip" data-e="pause">Whenever I pause</div></div></div>
         <div class="field"><div class="fl">The chord you're looking for</div>
           <div class="chips" id="cue"><div class="chip on" data-c="once">Play it once</div><div class="chip" data-c="stuck">Again if I go quiet</div><div class="chip" data-c="off">Don't play it</div></div></div>
         <label class="toggle"><input id="ting" type="checkbox" checked> Ting when you land the chord</label>
@@ -556,20 +556,18 @@ function chordStartStep(){                          // step where the current ch
   while (k > 0 && !gridStart[((k % grid.length) + grid.length) % grid.length]) k--;
   return k;
 }
-// In the "play every chord" game you have to play every note of the chord (any octave, either hand, held or
-// one after another); the notes you've covered stay lit until the chord moves on.
-let covered = new Set();
+// In the gated games every note of the chord has to sound at once. Once you've landed it, it stays lit (green) for the rest of your turn.
+let covered = new Set(), struckThis = false;
 function chordComplete(){
   if (!curChord) return false;
   const held = new Set([...chordHand, ...youNow].map(p => p % 12));
-  if (endMode === 'all') return [...curChord.tones].every(pc => held.has(pc) || covered.has(pc));
-  return [...curChord.pcs].every(pc => held.has(pc));
+  return [...(gatedMode() ? curChord.tones : curChord.pcs)].every(pc => held.has(pc));     // all together, any octave, either hand
 }
 let streak = 0;
 // Called when a key press completes the chord (all shell notes now held)
 function chordStruck(){
   const at = chordStartStep();
-  if ($('ting').checked && (endMode === 'all' || at !== tingedAt)) {        // ring a high "ting" in harmony (the chord's 3rd), once per chord
+  if ($('ting').checked && (gatedMode() || at !== tingedAt)) {        // ring a high "ting" in harmony (the chord's 3rd), once per chord
     tingedAt = at;
     const third = [...curChord.tones].find(pc => [3, 4].includes((pc - curChord.root + 12) % 12));
     const p = 84 + ((third - 84) % 12 + 12) % 12;    // two octaves up, C6–B6
@@ -577,6 +575,11 @@ function chordStruck(){
   }
   const el = $('chord'), ring = $('ring'); el.classList.remove('ting'); ring.classList.remove('go'); void el.offsetWidth; el.classList.add('ting'); ring.classList.add('go');
   // "Play every chord" game: the harmony waits for you, and your turn ends after the last chord
+  if (endMode === 'chord' && (phase === 'you' || phase === 'listen')) {     // landed: now improvise over it; your turn ends when you go quiet
+    if (phase === 'listen') { phase = 'you'; phrase = []; }
+    if (!struckThis) { struckThis = true; covered = new Set(curChord.tones); }
+    return;
+  }
   if (endMode === 'all' && (phase === 'you' || phase === 'listen')) {
     if (phase === 'listen') { phase = 'you'; phrase = []; }
     if (gi < seqList.length - 1) { gi++; curChord = seqList[gi]; covered = new Set(); changes.push({step: Math.floor(stepPos()), c: curChord}); setTimeout(() => playCue(curChord), 250); }
@@ -592,13 +595,13 @@ function playCue(c){
 }
 document.querySelectorAll('#cue .chip').forEach(el => el.onclick = () => {
   cue = el.dataset.c; document.querySelectorAll('#cue .chip').forEach(x => x.classList.toggle('on', x === el));
-  if (playing && endMode === 'all' && (phase === 'listen' || phase === 'you') && cue !== 'off') playCue(curChord);
+  if (playing && gatedMode() && (phase === 'listen' || phase === 'you') && cue !== 'off') playCue(curChord);
 });
 // ---- gated mode state ----
 let seqList = [], gi = 0, changes = [], compNow = new Set(), compSounding = new Set();
-function resetToYou(){
-  gi = 0; curChord = seqList[0]; covered = new Set(); changes = [{step: Math.max(0, Math.floor(stepPos())), c: curChord}];
-  setTimeout(() => { if (endMode === 'all' && (phase === 'listen' || phase === 'you')) playCue(curChord); }, 400);
+function resetToYou(i = 0){
+  gi = i; curChord = seqList[gi]; covered = new Set(); struckThis = false; changes = [{step: Math.max(0, Math.floor(stepPos())), c: curChord}];
+  setTimeout(() => { if (gatedMode() && (phase === 'listen' || phase === 'you')) playCue(curChord); }, 400);
   compSounding.forEach(p => noteOff(p, CH.comp)); compSounding.clear(); compNow.clear();
 }
 // Magenta's turn in gated mode: it plays every chord of the sequence, with its phrase over the top
@@ -648,12 +651,61 @@ async function answerAll(){
     phase = 'answer'; showTurn();
   } catch (err) { console.error(err); status('Magenta hit an error: ' + err.message, true); phase = 'listen'; resetToYou(); showTurn(); }
 }
-let endMode = 'all';
+// Trading chord by chord: Magenta answers on the same chord, about as long as you played (within its bar range)
+async function answerChord(){
+  const my = ++token;
+  phase = 'think'; showTurn();
+  const now = stepPos();
+  const ansStart = Math.ceil((now + 2) / 16) * 16;                 // start on the next downbeat
+  const mel = phrase.filter(n => n.p >= SPLIT);
+  let start = mel.length ? Math.floor(Math.min(...mel.map(n => n.on)) / SPQ) * SPQ : ansStart - 16;
+  start = Math.max(start, ansStart - 64);
+  const L = ansStart - start;
+  const chordAtYour = k => { let c = changes[0].c; for (const ch of changes) if (ch.step <= k) c = ch.c; return c; };
+  const seed = {notes: mel.filter(n => n.on >= start).map(n => {
+      const s0 = Math.max(0, Math.min(L - 1, Math.round(n.on - start)));
+      const e0 = Math.max(s0 + 1, Math.min(L, Math.round((n.off ?? now) - start)));
+      return {pitch: fitRange(n.p), quantizedStartStep: s0, quantizedEndStep: e0};
+    }), totalQuantizedSteps: L, quantizationInfo: {stepsPerQuarter: SPQ}};
+  if (!seed.notes.length) seed.notes = [{pitch: 65, quantizedStartStep: Math.max(0, L - 4), quantizedEndStep: L}];
+  // Magenta's layout: each chord of the sequence for its length
+  const you0 = mel.length ? Math.min(...mel.map(n => n.on)) : now, you1 = mel.length ? Math.max(...mel.map(n => n.off ?? now)) : now;
+  const bars = Math.max(+$('minBars').value, Math.min(+$('maxBars').value, Math.ceil((you1 - you0) / 16) || 1));
+  const layout = [{c: curChord, s: 0, len: bars * 16}]; let pos = bars * 16;
+  const ansLen = pos, chordOfAns = st => { let c = layout[0].c; for (const l of layout) if (l.s <= st) c = l.c; return c; };
+  const prog = [];
+  for (let k = start; k < ansStart; k++) prog.push(chordAtYour(k).mm);
+  for (let k = 0; k < ansLen; k++) prog.push(chordOfAns(k).mm);
+  try {
+    let best = [], bestScore = -1;
+    for (let tries = 0; tries < 3 && bestScore < 0.85; tries++) {
+      const out = await rnn.continueSequence(seed, ansLen, +$('temp').value + tries * 0.15, prog);
+      if (my !== token) return;
+      const cand = out.notes.filter(n => n.quantizedStartStep < ansLen)
+        .map(n => ({pitch: n.pitch, s: n.quantizedStartStep, e: Math.min(ansLen, n.quantizedEndStep)}));
+      const sc = fills(cand, ansLen); if (sc > bestScore) { best = cand; bestScore = sc; }
+    }
+    const notes = shape(best, chordOfAns);
+    pending = [];
+    layout.forEach((l, i) => {
+      pending.push({step: ansStart + l.s, kind: 'chord', c: l.c, i});
+      l.c.voicing.forEach(p => { pending.push({step: ansStart + l.s, kind: 'con', p, len: l.len});
+                                 pending.push({step: ansStart + l.s + l.len, kind: 'coff', p}); });
+    });
+    notes.forEach(n => { pending.push({step: ansStart + n.s, kind: 'on', p: n.pitch, len: n.e - n.s});
+                         pending.push({step: ansStart + n.e, kind: 'off', p: n.pitch}); });
+    const order = {coff: 0, off: 1, chord: 2, con: 3, on: 4};
+    pending.sort((x, y) => x.step - y.step || order[x.kind] - order[y.kind]);
+    phase = 'answer'; showTurn();
+  } catch (err) { console.error(err); status('Magenta hit an error: ' + err.message, true); phase = 'listen'; resetToYou(gi); showTurn(); }
+}
+let endMode = 'chord';
+const gatedMode = () => endMode === 'all' || endMode === 'chord';   // the harmony waits for you to play the chord
 document.querySelectorAll('#endMode .chip').forEach(el => el.onclick = () => {
   endMode = el.dataset.e; streak = 0; showStreak(); if (playing) restart();
   document.querySelectorAll('#endMode .chip').forEach(x => x.classList.toggle('on', x === el));
 });
-function showStreak(){ $('streak').textContent = endMode === 'all' && streak ? '◎ ' + streak + ' landed' : ''; }
+function showStreak(){ $('streak').textContent = gatedMode() && streak ? '◎ ' + streak + ' landed' : ''; }
 
 function onIn(e){
   const [st, p, v] = e.data, cmd = st & 0xf0;
@@ -662,11 +714,10 @@ function onIn(e){
   if (!on && !off) return;
   if (on) lastYouAt = performance.now();
   const was = chordComplete();
-  if (on && endMode === 'all' && curChord && phase !== 'answer' && phase !== 'think' && curChord.tones.has(p % 12)) covered.add(p % 12);
   if (p < SPLIT) {                                  // chord hand: never counts as your phrase
     if (on) chordHand.add(p); else chordHand.delete(p);
   } else if (on) {
-    if (phase === 'answer' || phase === 'think') { token++; silenceMagenta(); phrase = []; if (endMode === 'all') { phase = 'listen'; resetToYou(); } }  // you interrupt: Magenta yields
+    if (phase === 'answer' || phase === 'think') { token++; silenceMagenta(); phrase = []; if (gatedMode()) { phase = 'listen'; resetToYou(endMode === 'chord' ? (gi + 1) % seqList.length : 0); } }  // you interrupt: Magenta yields
     if (phase !== 'you') { phrase = []; phase = 'you'; }
     phrase.push({p, on: stepPos(), off: null}); youNow.add(p); spawnNote(p, 'you');
   } else {
@@ -736,9 +787,9 @@ function turnText(){
   let who = '', sub = '';
   if (playing && mode === 'trade') {
     const n = (seqList.length || section().length);
-    if (phase === 'you' || phase === 'listen') { who = 'Your turn'; sub = endMode === 'all' ? `Play each chord once · ${Math.min(gi + 1, n)} of ${n}` : 'Play a phrase, then pause'; }
+    if (phase === 'you' || phase === 'listen') { who = 'Your turn'; sub = endMode === 'chord' ? `Play the chord (all notes together), then improvise · ${Math.min(gi + 1, n)} of ${n}` : endMode === 'all' ? `Play each chord once · ${Math.min(gi + 1, n)} of ${n}` : 'Play a phrase, then pause'; }
     else if (phase === 'think') { who = 'Magenta is thinking'; sub = 'Listen'; }
-    else { who = 'Magenta’s turn'; sub = endMode === 'all' ? 'Listen: it plays every chord once' : 'Listen'; }
+    else { who = 'Magenta’s turn'; sub = endMode === 'all' ? 'Listen: it plays every chord once' : endMode === 'chord' ? 'Listen: its answer on the same chord' : 'Listen'; }
   } else if (playing) { who = 'Magenta solos'; sub = 'Play along'; }
   const w = document.querySelector('#turnBig .tb-who'), sb = document.querySelector('#turnBig .tb-sub');
   if (w.textContent !== who) w.textContent = who;
@@ -749,7 +800,7 @@ function tradeTick(){
   const k = Math.floor(stepPos());
   if (k > lastStep) {
     for (let step = lastStep + 1; step <= k; step++) {
-      if (endMode === 'all') continue;                // gated: chords move when they're played, not by the clock
+      if (gatedMode()) continue;                // gated: chords move when they're played, not by the clock
       const c = chordAt(step), prevC = step > 0 ? chordAt(step - 1) : null;
       if (step === 0 || gridStart[((step % grid.length) + grid.length) % grid.length]) {
         if (prevC) prevC.voicing.forEach(p => { noteOff(p, CH.comp); compNow.delete(p % 12); });
@@ -762,6 +813,8 @@ function tradeTick(){
   }
   // your phrase is over after one beat of silence
   if (endMode === 'pause' && phase === 'you' && youNow.size === 0 && performance.now() - lastOffAt >= beatMs()) answer();
+  // trading chord by chord: once you've landed the chord, your turn ends when you let go and a beat of silence passes
+  if (endMode === 'chord' && phase === 'you' && struckThis && youNow.size === 0 && chordHand.size === 0 && performance.now() - lastOffAt >= beatMs()) answerChord();
   // Magenta's notes
   while (pending.length && pending[0].step <= k) {
     const e = pending.shift();
@@ -771,9 +824,9 @@ function tradeTick(){
     else if (e.kind === 'con') { noteOn(e.p, 62, e.len * stepMs() / 1000, CH.comp); compSounding.add(e.p); compNow.add(e.p % 12); }
     else if (e.kind === 'coff') { noteOff(e.p, CH.comp); compSounding.delete(e.p); compNow.delete(e.p % 12); }
   }
-  if (phase === 'answer' && !pending.length) { phase = 'listen'; if (endMode === 'all') resetToYou(); showTurn(); }   // answer finished: wait for you
-  if (endMode === 'all' && (phase === 'listen' || phase === 'you') && cue === 'stuck' && !chordComplete() && performance.now() - Math.max(lastCueAt, lastYouAt) > beatMs() * 8) playCue(curChord);
-  if (endMode === 'all' && (phase === 'listen' || phase === 'you')) setTones(curChord);
+  if (phase === 'answer' && !pending.length) { phase = 'listen'; if (endMode === 'all') resetToYou(); if (endMode === 'chord') resetToYou((gi + 1) % seqList.length); showTurn(); }   // answer finished: your turn (on the next chord, when trading chord by chord)
+  if (gatedMode() && (phase === 'listen' || phase === 'you') && cue === 'stuck' && !chordComplete() && performance.now() - Math.max(lastCueAt, lastYouAt) > beatMs() * 8) playCue(curChord);
+  if (gatedMode() && (phase === 'listen' || phase === 'you')) setTones(curChord);
   draw();
 }
 
@@ -962,7 +1015,7 @@ function bandTick(){
       if (ms > performance.now() - 20) drumHit(ms, inst, v * (0.9 + Math.random() * 0.2));
     });
     // bass in chord-by-chord mode: follow whatever chord is sounding right now (root on 1, fifth on 3)
-    if (endMode === 'all' && mode === 'trade' && $('bassOn').checked && curChord && (inBar === 0 || inBar === 2)) {
+    if (gatedMode() && mode === 'trade' && $('bassOn').checked && curChord && (inBar === 0 || inBar === 2)) {
       const c = curChord, r = 40 + ((c.root - 40) % 12 + 12) % 12;
       const fifth = [...c.tones].map(pc => (pc - c.root + 12) % 12).find(i => i === 7 || i === 6) ?? 7;
       const p = inBar === 0 || c !== lastBassChord ? r : r + fifth;
@@ -970,7 +1023,7 @@ function bandTick(){
       bassHit(bandT0 + warp(n) * beatMs(), p > 60 ? p - 12 : p, beatMs() * 1.9);
     }
     // bass: plan a chord's worth of notes when it starts
-    else if (endMode !== 'all' && beat.first && $('bassOn').checked) {
+    else if (!gatedMode() && beat.first && $('bassOn').checked) {
       const next = bandBeats[(n + beat.len) % bandBeats.length].c;
       bassLine(beat.c, next, beat.len).forEach(([b, p, d]) => {
         const ms = bandT0 + warp(n + b) * beatMs();
@@ -993,7 +1046,7 @@ function summarise(){
   const on = id => { const el = document.querySelector('#' + id + ' .chip.on'); return el ? el.textContent : ''; };
   const pick1 = seqr.get();
   $('sum-seq').textContent = pick1 ? pick1.names.map(lettered).join(' → ') : 'Whole tune';
-  $('sum-game').textContent = on('mode') + ', turn ends ' + on('endMode').toLowerCase();
+  $('sum-game').textContent = on('mode') + ' · ' + on('endMode');
   $('sum-mag').textContent = on('stick') + ', adventure ' + (+$('temp').value).toFixed(1) + ', answers ' + $('minV').textContent + '–' + $('maxV').textContent;
   $('sum-band').textContent = on('style') + ' at ' + $('tempo').value + ' bpm' + ($('bassOn').checked ? ', with bass' : '');
   $('sum-tones').textContent = 'Chords: ' + on('tones-pad') + ', Magenta: ' + on('tones-mel');
@@ -1022,7 +1075,7 @@ function stop(){
   outs.forEach(o => { try { o.send([0xB0 | CH.pad, 64, 0]); } catch (e) {} }); padNotes.forEach(p => noteOff(p, CH.pad)); padNotes = []; padChord = null;
   stopBand(); document.body.classList.remove('playing', 'turn-you', 'turn-mag', 'turn-think');
   playing = false; clearInterval(timer); clearTimeout(nextPass); queue = [];
-  token++; allOff(); curChord = null; curNote = null; pending = []; magSounding.clear(); youNow.clear(); chordHand.clear(); covered = new Set(); tingedAt = -1; compNow.clear(); compSounding.clear(); $('turn').textContent = ''; draw();
+  token++; allOff(); curChord = null; curNote = null; pending = []; magSounding.clear(); youNow.clear(); chordHand.clear(); covered = new Set(); struckThis = false; tingedAt = -1; compNow.clear(); compSounding.clear(); $('turn').textContent = ''; draw();
   $('play').disabled = !rnn; $('stop').disabled = true; status();
 }
 $('stop').onclick = stop;
@@ -1065,15 +1118,15 @@ function chordHTML(name){
   return `<span class="cs">${m[1]}${acc}${q}${sl}</span>`;
 }
 function renderStrip(){
-  const gated = mode === 'trade' && endMode === 'all';
+  const gated = mode === 'trade' && gatedMode();
   const list = gated && seqList.length ? seqList : section();
   if (!playing || !list.length) { $('strip').innerHTML = ''; return; }
   const magTurn = phase === 'answer' || phase === 'think';
-  const at = gated && !magTurn ? gi : curIdx;
+  const at = gated && (!magTurn || endMode === 'chord') ? gi : curIdx;
   const who = magTurn ? 'mag' : (mode === 'trade' ? 'you' : 'mag');
   const lo = list.length <= 7 ? 0 : Math.max(0, Math.min(at - 2, list.length - 7)), hi = Math.min(list.length, lo + 7);
   let h = lo > 0 ? '<span class="more">…</span>' : '';
-  for (let i = lo; i < hi; i++) h += `<span class="bar${i === at ? ' now ' + who : i < at && gated && !magTurn ? ' done' : ''}">${chordHTML(list[i].name)}</span>`;
+  for (let i = lo; i < hi; i++) h += `<span class="bar${i === at ? ' now ' + who : i < at && gated && (!magTurn || endMode === 'chord') ? ' done' : ''}">${chordHTML(list[i].name)}</span>`;
   if (hi < list.length) h += '<span class="more">…</span>';
   $('strip').innerHTML = h;
 }
@@ -1090,12 +1143,12 @@ function draw(){
   if (window.Duo && Duo.ok) {
     const magTurn = phase === 'answer' || phase === 'think', yours = playing && mode === 'trade' && !magTurn;
     const order = c => [...c.tones].sort((a, b) => ((a - c.root + 12) % 12) - ((b - c.root + 12) % 12));
-    const n = seqList.length || section().length;
+    const n = seqList.length || section().length, heldNow = new Set([...youNow, ...chordHand].map(p => p % 12));
     Duo.update({you: [...youNow, ...chordHand].map(p => p % 12), mel: curNote == null ? -1 : curNote % 12,
                 magchord: [...compNow], tones: yours && curChord ? [...curChord.tones] : [], covered: yours ? [...covered] : [],
                 turn: !playing ? null : magTurn ? 'mag' : mode === 'trade' ? 'you' : 'mag', thinking: phase === 'think',
-                chord: curChord ? {name: lettered(curChord.name), notes: order(curChord).map(pc => ({name: sar(pc), pc, done: yours && covered.has(pc)})),
-                                   step: mode === 'trade' && endMode === 'all' && !magTurn ? `${Math.min(gi + 1, n)}/${n}` : ''} : null});
+                chord: curChord ? {name: lettered(curChord.name), notes: order(curChord).map(pc => ({name: sar(pc), pc, done: yours && (covered.has(pc) || heldNow.has(pc))})),
+                                   step: mode === 'trade' && gatedMode() && (!magTurn || endMode === 'chord') ? `${Math.min(gi + 1, n)}/${n}` : ''} : null});
     return;
   }
   if (window.World && World.ok) {
