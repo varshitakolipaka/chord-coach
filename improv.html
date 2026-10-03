@@ -219,7 +219,7 @@
         <div class="field"><div class="fl">Who plays</div>
           <div class="chips" id="mode"><div class="chip on" data-m="trade">Take turns</div><div class="chip" data-m="solo">Magenta solos</div></div></div>
         <div class="field"><div class="fl">How you trade</div>
-          <div class="chips" id="endMode"><div class="chip on" data-e="chord">Each chord: you, then Magenta</div><div class="chip" data-e="all">The whole sequence, then Magenta</div><div class="chip" data-e="pause">Whenever I pause</div></div></div>
+          <div class="chips" id="endMode"><div class="chip on" data-e="bar">Trade bars: a bar each, in time</div><div class="chip" data-e="chord">Each chord, whenever I stop</div><div class="chip" data-e="all">The whole sequence, then Magenta</div><div class="chip" data-e="pause">Whenever I pause</div></div></div>
         <div class="field"><div class="fl">The chord you're looking for</div>
           <div class="chips" id="cue"><div class="chip on" data-c="once">Play it once</div><div class="chip" data-c="stuck">Again if I go quiet</div><div class="chip" data-c="off">Don't play it</div></div></div>
         <label class="toggle"><input id="ting" type="checkbox" checked> Ting when you land the chord</label>
@@ -362,13 +362,13 @@ function allOff(){ outs.forEach(o => { try { for (let c = 0; c < 16; c++) o.send
 
 // ---------- Casio tones for each part (CT-S1 tone list: bank 2, program = tone number - 1) ----------
 const TONES = {
-  mel:  [['Stage Piano',0],['Vibraphone',44],['Jazz Organ',22],['CZ Trumpet',53],['Tape Flute',35],['Stage E.Piano',10],['CZ Violin',54],['Saw Lead',39]],
+  mel:  [['Grand Piano',3],['Stage Piano',0],['Vibraphone',44],['Jazz Organ',22],['CZ Trumpet',53],['Tape Flute',35],['Stage E.Piano',10],['CZ Violin',54],['Saw Lead',39]],
   bass: [['Bass/Piano',9],['CZ Bass',52],['VZ Bass',59],['Stage Piano',0]],
-  comp: [['Stage Piano',0],['Stage E.Piano',10],['Jazz Organ',22],['Strings',42],['Vibraphone',44],['Guitar Pad',43]],
+  comp: [['Grand Piano',3],['Stage Piano',0],['Stage E.Piano',10],['Jazz Organ',22],['Strings',42],['Vibraphone',44],['Guitar Pad',43]],
   pad:  [['Off',-1],['Ballad piano',5],['Grand piano',3],['Stage piano',0],['Mellow piano',7],['Strings',42],['Synth pad',37]],
 };
-const pick = {mel: 44, bass: 9, comp: 10, pad: 5};
-const PICK_VERSION = 4;   // bump to reset saved tones when defaults change
+const pick = {mel: 3, bass: 9, comp: 3, pad: 5};   // Magenta plays a real piano
+const PICK_VERSION = 5;   // bump to reset saved tones when defaults change
 try { const saved = JSON.parse(localStorage.getItem('improv-tones')) || {}; if (saved.v === PICK_VERSION) Object.assign(pick, saved); } catch (e) {}
 function sendTones(){
   outs.forEach(o => { try { for (const part of ['mel','bass','comp','pad']) { if (pick[part] < 0) continue;
@@ -575,7 +575,7 @@ function chordStruck(){
   }
   const el = $('chord'), ring = $('ring'); el.classList.remove('ting'); ring.classList.remove('go'); void el.offsetWidth; el.classList.add('ting'); ring.classList.add('go');
   // "Play every chord" game: the harmony waits for you, and your turn ends after the last chord
-  if (endMode === 'chord' && (phase === 'you' || phase === 'listen')) {     // landed: now improvise over it; your turn ends when you go quiet
+  if ((endMode === 'chord' || endMode === 'bar') && (phase === 'you' || phase === 'listen')) {     // landed: now improvise over it
     if (phase === 'listen') { phase = 'you'; phrase = []; }
     if (!struckThis) { struckThis = true; covered = new Set(curChord.tones); }
     return;
@@ -704,8 +704,8 @@ async function answerChord(){
   pending.sort((x, y) => x.step - y.step || order[x.kind] - order[y.kind]);
   phase = 'answer'; showTurn();
 }
-let endMode = 'chord';
-const gatedMode = () => endMode === 'all' || endMode === 'chord';   // the harmony waits for you to play the chord
+let endMode = 'bar';
+const gatedMode = () => endMode === 'all' || endMode === 'chord' || endMode === 'bar';   // the harmony waits for you to play the chord
 document.querySelectorAll('#endMode .chip').forEach(el => el.onclick = () => {
   endMode = el.dataset.e; streak = 0; showStreak(); if (playing) restart();
   document.querySelectorAll('#endMode .chip').forEach(x => x.classList.toggle('on', x === el));
@@ -722,6 +722,7 @@ function onIn(e){
   if (p < SPLIT) {                                  // chord hand: never counts as your phrase
     if (on) chordHand.add(p); else chordHand.delete(p);
   } else if (on) {
+    if (endMode === 'bar') { if (phase === 'answer' || phase === 'think') { youNow.add(p); draw(); return; } }
     if (phase === 'answer' || phase === 'think') { token++; silenceMagenta(); phrase = []; if (gatedMode()) { phase = 'listen'; resetToYou(endMode === 'chord' ? (gi + 1) % seqList.length : 0); } }  // you interrupt: Magenta yields
     if (phase !== 'you') { phrase = []; phase = 'you'; }
     phrase.push({p, on: stepPos(), off: null}); youNow.add(p); spawnNote(p, 'you');
@@ -803,8 +804,64 @@ function turnText(){
   if (sb.textContent !== sub) sb.textContent = sub;
 }
 
+// ---- trading bars: a strict clock. Bar 0 counts you in; then you get a bar, Magenta gets a bar, on the same chord.
+// Land the chord (all its notes together) somewhere in your bar and the next chord is yours; miss it and you go again.
+// Magenta starts composing on beat 3 of your bar, so its answer comes in exactly on the downbeat.
+let barTurn = {seg: -1, planned: false, plan: null, landed: false};
+const BAR = 16;
+function barInfo(k){ const b = Math.floor(k / BAR); return {b, inBar: k - b * BAR, who: b === 0 ? 'count' : (b - 1) % 2 === 0 ? 'you' : 'mag'}; }
+function barTick(k){
+  const {b, inBar, who} = barInfo(k);
+  if (b !== barTurn.seg) {
+    barTurn.seg = b;
+    if (who === 'count') { phase = 'listen'; playCue(curChord); }
+    else if (who === 'you') {
+      const again = b > 1 && !barTurn.landed;
+      if (b > 1 && barTurn.landed) gi = (gi + 1) % seqList.length;
+      curChord = seqList[gi]; covered = new Set(); struckThis = false; phrase = []; changes = [{step: b * BAR, c: curChord}];
+      compSounding.forEach(p => noteOff(p, CH.comp)); compSounding.clear(); compNow.clear();
+      barTurn = {seg: b, planned: false, plan: null, landed: false, again};
+      phase = 'you'; if (b > 1) playCue(curChord);
+    } else {
+      barTurn.landed = struckThis;
+      if (struckThis) { streak++; showStreak(); }
+      phase = 'answer';
+      const start = b * BAR;
+      const use = plan => {
+        if (!plan || barTurn.seg !== b) return;
+        const now = stepPos();
+        pending = [{step: start, kind: 'chord', c: plan.c, i: gi}];
+        plan.c.voicing.forEach(p => { pending.push({step: start, kind: 'con', p, len: BAR}); pending.push({step: start + BAR, kind: 'coff', p}); });
+        plan.notes.forEach(n => { if (start + n.s >= now - 0.5) { pending.push({step: start + n.s, kind: 'on', p: n.pitch, len: n.e - n.s}); pending.push({step: start + n.e, kind: 'off', p: n.pitch}); } });
+        const order = {coff: 0, off: 1, chord: 2, con: 3, on: 4};
+        pending.sort((x, y) => x.step - y.step || order[x.kind] - order[y.kind]);
+      };
+      if (barTurn.plan) barTurn.plan.then(use); else planBar(start).then(use);
+    }
+    showTurn();
+  }
+  // beat 3 of your bar: Magenta starts composing its answer from what you've played so far
+  if (who === 'you' && !barTurn.planned && inBar >= 8) { barTurn.planned = true; barTurn.plan = planBar((b + 1) * BAR); }
+}
+async function planBar(ansStart){
+  const my = token, c = curChord, now = stepPos();
+  const start = ansStart - BAR, L = BAR;
+  const mel = phrase.filter(n => n.p >= SPLIT && n.on >= start - 1);
+  const seed = {notes: mel.map(n => { const s0 = Math.max(0, Math.min(L - 1, Math.round(n.on - start))); const e0 = Math.max(s0 + 1, Math.min(L, Math.round((n.off ?? now) - start)));
+      return {pitch: fitRange(n.p), quantizedStartStep: s0, quantizedEndStep: e0}; }), totalQuantizedSteps: L, quantizationInfo: {stepsPerQuarter: SPQ}};
+  if (!seed.notes.length) seed.notes = [{pitch: fitRange(60 + c.root % 12), quantizedStartStep: 0, quantizedEndStep: 4}];
+  const prog = Array(L + BAR).fill(c.mm);
+  try {
+    const out = await rnn.continueSequence(seed, BAR, +$('temp').value, prog);
+    if (my !== token) return null;
+    const cand = out.notes.filter(n => n.quantizedStartStep < BAR).map(n => ({pitch: n.pitch, s: n.quantizedStartStep, e: Math.min(BAR, n.quantizedEndStep)}));
+    return {c, notes: shape(cand, () => c)};
+  } catch (e) { console.error(e); return null; }
+}
+
 function tradeTick(){
   const k = Math.floor(stepPos());
+  if (endMode === 'bar') barTick(stepPos());
   if (k > lastStep) {
     for (let step = lastStep + 1; step <= k; step++) {
       if (gatedMode()) continue;                // gated: chords move when they're played, not by the clock
@@ -831,7 +888,7 @@ function tradeTick(){
     else if (e.kind === 'con') { noteOn(e.p, 62, e.len * stepMs() / 1000, CH.comp); compSounding.add(e.p); compNow.add(e.p % 12); }
     else if (e.kind === 'coff') { noteOff(e.p, CH.comp); compSounding.delete(e.p); compNow.delete(e.p % 12); }
   }
-  if (phase === 'answer' && !pending.length) { phase = 'listen'; if (endMode === 'all') resetToYou(); if (endMode === 'chord') resetToYou((gi + 1) % seqList.length); showTurn(); }   // answer finished: your turn (on the next chord, when trading chord by chord)
+  if (endMode !== 'bar' && phase === 'answer' && !pending.length) { phase = 'listen'; if (endMode === 'all') resetToYou(); if (endMode === 'chord') resetToYou((gi + 1) % seqList.length); showTurn(); }   // answer finished: your turn (on the next chord, when trading chord by chord)
   if (gatedMode() && (phase === 'listen' || phase === 'you') && cue === 'stuck' && !chordComplete() && performance.now() - Math.max(lastCueAt, lastYouAt) > beatMs() * 8) playCue(curChord);
   if (gatedMode() && (phase === 'listen' || phase === 'you')) setTones(curChord);
   draw();
@@ -840,7 +897,9 @@ function tradeTick(){
 function startTrade(){
   grid = []; gridStart = []; gridIdx = []; section().forEach((c, j) => { for (let i = 0; i < c.beats * SPQ; i++) { grid.push(c); gridStart.push(i === 0); gridIdx.push(j); } });
   t0 = performance.now() + 300; lastStep = -1; pending = []; phrase = []; phase = 'listen'; token++;
-  seqList = section(); streak = 0; showStreak(); resetToYou(); changes = [{step: 0, c: seqList[0]}];
+  seqList = section(); streak = 0; showStreak(); barTurn = {seg: -1, planned: false, plan: null, landed: false};
+  if (endMode === 'bar') { gi = 0; curChord = seqList[0]; covered = new Set(); struckThis = false; } else resetToYou();
+  changes = [{step: 0, c: seqList[0]}];
   startBand(t0);
   showTurn();
   timer = setInterval(() => { if (performance.now() >= t0) tradeTick(); }, 8);
@@ -1153,9 +1212,10 @@ function draw(){
     const n = seqList.length || section().length, heldNow = new Set([...youNow, ...chordHand].map(p => p % 12));
     Duo.update({you: [...youNow, ...chordHand].map(p => p % 12), mel: curNote == null ? -1 : curNote % 12,
                 magchord: [...compNow], tones: yours && curChord ? [...curChord.tones] : [], covered: yours ? [...covered] : [],
-                turn: !playing ? null : magTurn ? 'mag' : mode === 'trade' ? 'you' : 'mag', thinking: phase === 'think',
+                turn: !playing ? null : magTurn ? 'mag' : mode === 'trade' ? 'you' : 'mag', count: endMode === 'bar' && barTurn.seg <= 0, thinking: phase === 'think',
                 chord: curChord ? {name: lettered(curChord.name), notes: order(curChord).map(pc => ({name: sar(pc), pc, done: yours && (covered.has(pc) || heldNow.has(pc))})),
-                                   step: mode === 'trade' && gatedMode() && (!magTurn || endMode === 'chord') ? `${Math.min(gi + 1, n)}/${n}` : ''} : null});
+                                   step: mode === 'trade' && gatedMode() && (!magTurn || endMode === 'chord' || endMode === 'bar') ? (endMode === 'bar' && barTurn.again && !magTurn ? 'again' : `${Math.min(gi + 1, n)}/${n}`) : ''} : null,
+                beat: playing && mode === 'trade' && endMode === 'bar' && performance.now() >= t0 ? (() => { const k = stepPos(), bi = barInfo(Math.floor(k)); return {i: Math.floor(bi.inBar / 4), who: bi.who}; })() : null});
     return;
   }
   if (window.World && World.ok) {

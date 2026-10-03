@@ -323,8 +323,14 @@
       const t = 'press play', w = ledWidth(t, 8); led(c, t, 8, gx(D.x + (D.w - w) / 2), gy(D.y + D.h - 4 * P), LED.yellow);
       c.restore(); return;
     }
+    // the bar's four beats, top left: a little LED block per beat, lit as the bar goes by
+    if (s.beat) { const col = s.beat.who === 'mag' ? LED.pink : s.beat.who === 'you' ? LED.blue : LED.white;
+      for (let i = 0; i < 4; i++) { c.fillStyle = i <= s.beat.i ? col : 'rgba(255,240,220,0.16)'; c.shadowColor = col; c.shadowBlur = i <= s.beat.i ? 5 : 0;
+        for (let a = 0; a < 4; a++) for (let b2 = 0; b2 < 4; b2++) c.fillRect(gx(D.x + 8) + (i * 5 + a) * P, gy(D.y + 8) + b2 * P, P - 1.1, P - 1.1); }
+      c.shadowBlur = 0;
+      if (s.count) { const t = 'ready', w = ledWidth(t, 7); led(c, t, 7, gx(D.x + 8), gy(D.y + 8 + 11 * P), LED.white); } }
     // the border says whose turn it is, so the screen only shows what to play: the chord, big, and its notes
-    if (ch.step) { const w = ledWidth(ch.step, 9); led(c, ch.step, 9, gx(D.x + D.w - 8 - w), gy(D.y + 6 + 8 * P), LED.white); }
+    if (ch.step) { const w = ledWidth(ch.step, 9); led(c, ch.step, 9, gx(D.x + D.w - 8 - w), gy(D.y + 6 + 8 * P), ch.step === 'again' ? LED.pink : LED.white); }
     let px = 15; while (px > 8 && ledWidth(ch.name, px) > D.w - 90) px--;
     const cw = ledWidth(ch.name, px); led(c, ch.name, px, gx(D.x + (D.w - cw) / 2), gy(D.y + 4 + px * 0.98 * P), mag ? LED.pink : LED.yellow);
     // its notes in sargam: yellow still to play, green got
