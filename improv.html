@@ -609,7 +609,7 @@ async function answerAll(){
   const my = ++token;
   phase = 'think'; showTurn();
   const now = stepPos();
-  const ansStart = Math.ceil((now + 2) / 16) * 16;                 // start on the next downbeat
+  const ansStart = Math.ceil((now + 0.5) / 2) * 2;                // answer on the very next eighth note (no waiting for the bar)
   const mel = phrase.filter(n => n.p >= SPLIT);
   let start = mel.length ? Math.floor(Math.min(...mel.map(n => n.on)) / SPQ) * SPQ : ansStart - 16;
   start = Math.max(start, ansStart - 64);
@@ -630,33 +630,35 @@ async function answerAll(){
   for (let k = 0; k < ansLen; k++) prog.push(chordOfAns(k).mm);
   try {
     let best = [], bestScore = -1;
-    for (let tries = 0; tries < 3 && bestScore < 0.85; tries++) {
+    for (let tries = 0; tries < 2 && bestScore < 0.7; tries++) {
       const out = await rnn.continueSequence(seed, ansLen, +$('temp').value + tries * 0.15, prog);
       if (my !== token) return;
       const cand = out.notes.filter(n => n.quantizedStartStep < ansLen)
         .map(n => ({pitch: n.pitch, s: n.quantizedStartStep, e: Math.min(ansLen, n.quantizedEndStep)}));
       const sc = fills(cand, ansLen); if (sc > bestScore) { best = cand; bestScore = sc; }
     }
+    const go = Math.max(ansStart, Math.ceil((stepPos() + 0.5) / 2) * 2);   // never schedule into the past
     const notes = shape(best, chordOfAns);
     pending = [];
     layout.forEach((l, i) => {
-      pending.push({step: ansStart + l.s, kind: 'chord', c: l.c, i});
-      l.c.voicing.forEach(p => { pending.push({step: ansStart + l.s, kind: 'con', p, len: l.len});
-                                 pending.push({step: ansStart + l.s + l.len, kind: 'coff', p}); });
+      pending.push({step: go + l.s, kind: 'chord', c: l.c, i});
+      l.c.voicing.forEach(p => { pending.push({step: go + l.s, kind: 'con', p, len: l.len});
+                                 pending.push({step: go + l.s + l.len, kind: 'coff', p}); });
     });
-    notes.forEach(n => { pending.push({step: ansStart + n.s, kind: 'on', p: n.pitch, len: n.e - n.s});
-                         pending.push({step: ansStart + n.e, kind: 'off', p: n.pitch}); });
+    notes.forEach(n => { pending.push({step: go + n.s, kind: 'on', p: n.pitch, len: n.e - n.s});
+                         pending.push({step: go + n.e, kind: 'off', p: n.pitch}); });
     const order = {coff: 0, off: 1, chord: 2, con: 3, on: 4};
     pending.sort((x, y) => x.step - y.step || order[x.kind] - order[y.kind]);
     phase = 'answer'; showTurn();
   } catch (err) { console.error(err); status('Magenta hit an error: ' + err.message, true); phase = 'listen'; resetToYou(); showTurn(); }
 }
 // Trading chord by chord: Magenta answers on the same chord, about as long as you played (within its bar range)
-async function answerChord(){
-  const my = ++token;
-  phase = 'think'; showTurn();
+// Magenta starts composing the moment you let go (while it waits to be sure you've stopped), so its answer
+// can begin right after your pause instead of after a pause plus thinking time.
+let prep = null, prepTok = 0;
+async function planChord(){
   const now = stepPos();
-  const ansStart = Math.ceil((now + 2) / 16) * 16;                 // start on the next downbeat
+  const ansStart = Math.ceil((now + 0.5) / 2) * 2;
   const mel = phrase.filter(n => n.p >= SPLIT);
   let start = mel.length ? Math.floor(Math.min(...mel.map(n => n.on)) / SPQ) * SPQ : ansStart - 16;
   start = Math.max(start, ansStart - 64);
@@ -668,36 +670,39 @@ async function answerChord(){
       return {pitch: fitRange(n.p), quantizedStartStep: s0, quantizedEndStep: e0};
     }), totalQuantizedSteps: L, quantizationInfo: {stepsPerQuarter: SPQ}};
   if (!seed.notes.length) seed.notes = [{pitch: 65, quantizedStartStep: Math.max(0, L - 4), quantizedEndStep: L}];
-  // Magenta's layout: each chord of the sequence for its length
+  // about as long as you played, within Magenta's bar range
   const you0 = mel.length ? Math.min(...mel.map(n => n.on)) : now, you1 = mel.length ? Math.max(...mel.map(n => n.off ?? now)) : now;
   const bars = Math.max(+$('minBars').value, Math.min(+$('maxBars').value, Math.ceil((you1 - you0) / 16) || 1));
-  const layout = [{c: curChord, s: 0, len: bars * 16}]; let pos = bars * 16;
-  const ansLen = pos, chordOfAns = st => { let c = layout[0].c; for (const l of layout) if (l.s <= st) c = l.c; return c; };
+  const c = curChord, ansLen = bars * 16;
   const prog = [];
   for (let k = start; k < ansStart; k++) prog.push(chordAtYour(k).mm);
-  for (let k = 0; k < ansLen; k++) prog.push(chordOfAns(k).mm);
-  try {
-    let best = [], bestScore = -1;
-    for (let tries = 0; tries < 3 && bestScore < 0.85; tries++) {
-      const out = await rnn.continueSequence(seed, ansLen, +$('temp').value + tries * 0.15, prog);
-      if (my !== token) return;
-      const cand = out.notes.filter(n => n.quantizedStartStep < ansLen)
-        .map(n => ({pitch: n.pitch, s: n.quantizedStartStep, e: Math.min(ansLen, n.quantizedEndStep)}));
-      const sc = fills(cand, ansLen); if (sc > bestScore) { best = cand; bestScore = sc; }
-    }
-    const notes = shape(best, chordOfAns);
-    pending = [];
-    layout.forEach((l, i) => {
-      pending.push({step: ansStart + l.s, kind: 'chord', c: l.c, i});
-      l.c.voicing.forEach(p => { pending.push({step: ansStart + l.s, kind: 'con', p, len: l.len});
-                                 pending.push({step: ansStart + l.s + l.len, kind: 'coff', p}); });
-    });
-    notes.forEach(n => { pending.push({step: ansStart + n.s, kind: 'on', p: n.pitch, len: n.e - n.s});
-                         pending.push({step: ansStart + n.e, kind: 'off', p: n.pitch}); });
-    const order = {coff: 0, off: 1, chord: 2, con: 3, on: 4};
-    pending.sort((x, y) => x.step - y.step || order[x.kind] - order[y.kind]);
-    phase = 'answer'; showTurn();
-  } catch (err) { console.error(err); status('Magenta hit an error: ' + err.message, true); phase = 'listen'; resetToYou(gi); showTurn(); }
+  for (let k = 0; k < ansLen; k++) prog.push(c.mm);
+  let best = [], bestScore = -1;
+  for (let tries = 0; tries < 2 && bestScore < 0.7; tries++) {
+    const out = await rnn.continueSequence(seed, ansLen, +$('temp').value + tries * 0.15, prog);
+    const cand = out.notes.filter(n => n.quantizedStartStep < ansLen)
+      .map(n => ({pitch: n.pitch, s: n.quantizedStartStep, e: Math.min(ansLen, n.quantizedEndStep)}));
+    const sc = fills(cand, ansLen); if (sc > bestScore) { best = cand; bestScore = sc; }
+  }
+  return {c, ansStart, ansLen, notes: shape(best, () => c)};
+}
+function prepareChord(){ const tok = ++prepTok; prep = {tok, plan: planChord().catch(e => { console.error(e); return null; })}; }
+function cancelPrep(){ prepTok++; prep = null; }
+async function answerChord(){
+  const my = ++token;
+  phase = 'think'; showTurn();
+  const ready = prep && prep.tok === prepTok ? prep.plan : planChord().catch(e => { console.error(e); return null; });
+  prep = null;
+  const plan = await ready;
+  if (my !== token) return;
+  if (!plan) { status('Magenta hit an error', true); phase = 'listen'; resetToYou(gi); showTurn(); return; }
+  const go = Math.max(plan.ansStart, Math.ceil((stepPos() + 0.5) / 2) * 2);   // never schedule into the past
+  pending = [{step: go, kind: 'chord', c: plan.c, i: 0}];
+  plan.c.voicing.forEach(p => { pending.push({step: go, kind: 'con', p, len: plan.ansLen}); pending.push({step: go + plan.ansLen, kind: 'coff', p}); });
+  plan.notes.forEach(n => { pending.push({step: go + n.s, kind: 'on', p: n.pitch, len: n.e - n.s}); pending.push({step: go + n.e, kind: 'off', p: n.pitch}); });
+  const order = {coff: 0, off: 1, chord: 2, con: 3, on: 4};
+  pending.sort((x, y) => x.step - y.step || order[x.kind] - order[y.kind]);
+  phase = 'answer'; showTurn();
 }
 let endMode = 'chord';
 const gatedMode = () => endMode === 'all' || endMode === 'chord';   // the harmony waits for you to play the chord
@@ -725,6 +730,7 @@ function onIn(e){
     youNow.delete(p); lastOffAt = performance.now();
   }
   if (on && !was && chordComplete()) chordStruck();
+  if (endMode === 'chord') { if (on) cancelPrep(); else if (phase === 'you' && struckThis && youNow.size === 0 && chordHand.size === 0) prepareChord(); }
   showTurn(); draw();
 }
 
@@ -733,7 +739,7 @@ async function answer(){
   phase = 'think'; showTurn();
   const now = stepPos();
   // the answer is planned to start on the beat after next (gives Magenta a beat to think)
-  const ansStart = Math.ceil(now / SPQ) * SPQ + SPQ;
+  const ansStart = Math.ceil((now + 1) / SPQ) * SPQ;
   let start = Math.floor(Math.min(...phrase.map(n => n.on)) / SPQ) * SPQ;
   start = Math.max(start, ansStart - 64);                         // listen to at most the last 4 bars
   const L = ansStart - start;
@@ -758,11 +764,12 @@ async function answer(){
       const sc = fills(cand, ansLen);
       if (sc > bestScore) { best = cand; bestScore = sc; }
     }
-    const notes = shape(best, st => chordAt(ansStart + st));
+    const go = Math.max(ansStart, Math.ceil((stepPos() + 0.5) / 2) * 2);   // never schedule into the past
+    const notes = shape(best, st => chordAt(go + st));
     if (!notes.length) { phase = 'listen'; showTurn(); return; }
     notes.forEach(n => {
-      pending.push({step: ansStart + n.s, kind: 'on', p: n.pitch, len: n.e - n.s});
-      pending.push({step: ansStart + n.e, kind: 'off', p: n.pitch});
+      pending.push({step: go + n.s, kind: 'on', p: n.pitch, len: n.e - n.s});
+      pending.push({step: go + n.e, kind: 'off', p: n.pitch});
     });
     pending.sort((x, y) => x.step - y.step || (x.kind === 'off' ? -1 : 1));
     phase = 'answer'; showTurn();
@@ -814,7 +821,7 @@ function tradeTick(){
   // your phrase is over after one beat of silence
   if (endMode === 'pause' && phase === 'you' && youNow.size === 0 && performance.now() - lastOffAt >= beatMs()) answer();
   // trading chord by chord: once you've landed the chord, your turn ends when you let go and a beat of silence passes
-  if (endMode === 'chord' && phase === 'you' && struckThis && youNow.size === 0 && chordHand.size === 0 && performance.now() - lastOffAt >= beatMs()) answerChord();
+  if (endMode === 'chord' && phase === 'you' && struckThis && youNow.size === 0 && chordHand.size === 0 && performance.now() - lastOffAt >= beatMs() * 0.5) answerChord();
   // Magenta's notes
   while (pending.length && pending[0].step <= k) {
     const e = pending.shift();
@@ -1075,7 +1082,7 @@ function stop(){
   outs.forEach(o => { try { o.send([0xB0 | CH.pad, 64, 0]); } catch (e) {} }); padNotes.forEach(p => noteOff(p, CH.pad)); padNotes = []; padChord = null;
   stopBand(); document.body.classList.remove('playing', 'turn-you', 'turn-mag', 'turn-think');
   playing = false; clearInterval(timer); clearTimeout(nextPass); queue = [];
-  token++; allOff(); curChord = null; curNote = null; pending = []; magSounding.clear(); youNow.clear(); chordHand.clear(); covered = new Set(); struckThis = false; tingedAt = -1; compNow.clear(); compSounding.clear(); $('turn').textContent = ''; draw();
+  token++; allOff(); curChord = null; curNote = null; pending = []; magSounding.clear(); youNow.clear(); chordHand.clear(); covered = new Set(); struckThis = false; cancelPrep(); tingedAt = -1; compNow.clear(); compSounding.clear(); $('turn').textContent = ''; draw();
   $('play').disabled = !rnn; $('stop').disabled = true; status();
 }
 $('stop').onclick = stop;
