@@ -133,15 +133,29 @@
   button.small{padding:6px 12px;font-size:13px}
   .note{font-size:12.5px;line-height:1.5;color:var(--dim);margin:0;max-width:60ch}
   /* the painting: a still picture; only the keys change */
-  body.duo #kb{max-width:1000px;width:min(100%, calc((100vh - 290px) * 1.43))}
+  body.duo #kb{max-width:1000px;width:min(100%, calc((100vh - 380px) * 1.43))}
   @media (orientation: portrait){ body.duo .stage{justify-content:space-evenly} body.duo #chord{font-size:min(30vw,168px)} }
+  /* whose turn it is: impossible to miss */
+  #turnBig{display:flex;flex-direction:column;align-items:center;gap:5px;margin-bottom:12px;min-height:58px}
+  #turnBig .tb-who{font-family:'Fraunces',Georgia,serif;font-variation-settings:"SOFT" 100,"opsz" 72;font-weight:900;font-size:27px;line-height:1;padding:8px 20px 10px;border-radius:999px;color:#fff7ee;background:var(--ink);visibility:hidden}
+  #turnBig .tb-sub{font-weight:750;font-size:14px;color:var(--char);min-height:18px}
+  body.playing #turnBig .tb-who{visibility:visible}
+  body.turn-you #turnBig .tb-who{background:var(--turn,#d8417f);animation:nudge 1.4s ease-in-out infinite}
+  body.turn-mag #turnBig .tb-who{background:#0f6fbf}
+  body.turn-think #turnBig .tb-who{background:#0f6fbf;opacity:.7}
+  @keyframes nudge{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
+  @media (prefers-reduced-motion: reduce){body.turn-you #turnBig .tb-who{animation:none}}
+  body.duo #kb > div{border-radius:8px;transition:box-shadow .25s}
+  body.turn-you.playing #kb > div{box-shadow:0 0 0 6px var(--turn,#d8417f)}
+  body.turn-mag.playing #kb > div,body.turn-think.playing #kb > div{box-shadow:0 0 0 6px #0f6fbf}
+  @media (orientation: landscape) and (max-height: 520px){ #turnBig{margin-bottom:8px;min-height:48px} #turnBig .tb-who{font-size:21px;padding:6px 14px 8px} #turnBig .tb-sub{font-size:12px} }
   /* Riso: cream stock, fluorescent pink for you, misregistered headline */
-  body.skin-riso{--paper:#efe6d2;--ink:#1e1b1d;--red:#ff4fa8;--dim:#958b78;--line:#d9ccb2;background:#efe6d2}
+  body.skin-riso{--turn:#ff4fa8;--paper:#efe6d2;--ink:#1e1b1d;--red:#ff4fa8;--dim:#958b78;--line:#d9ccb2;background:#efe6d2}
   body.skin-riso #chord{text-shadow:.045em .03em 0 rgba(255,79,168,.75),-.03em -.02em 0 rgba(15,111,191,.45)}
   body.skin-riso .strip .bar.now{background:#0f6fbf;color:#fff7ee} body.skin-riso .strip .bar.now.you{background:#ff4fa8}
   body.skin-riso #bar .sw{box-shadow:inset 0 0 0 2px var(--ink),3px 3px 0 #ffcd2e}
   /* Kalighat: buff mill paper, lamp black, vermilion */
-  body.skin-kalighat{--paper:#efe2c4;--ink:#15110e;--red:#cf3a22;--dim:#8a7f69;--line:#d4c39f;
+  body.skin-kalighat{--turn:#cf3a22;--paper:#efe2c4;--ink:#15110e;--red:#cf3a22;--dim:#8a7f69;--line:#d4c39f;
     background:radial-gradient(120% 90% at 50% 35%,#f4e9cf 0%,#efe2c4 55%,#e2d0a8 100%) fixed #efe2c4}
   body.duo #kb canvas{display:block}
   @media (orientation: landscape) and (max-height: 520px){ body.duo #kb{flex:0 1 auto;width:min(66vw, calc((100vh - 100px) * 1.43))} body.duo .lead{flex:1 1 0} #streak{left:max(18px,env(safe-area-inset-left));right:auto} }
@@ -167,6 +181,7 @@
 <main class="stage">
   <div class="lead">
     <div id="turn"></div>
+    <div id="turnBig" aria-live="polite"><span class="tb-who"></span><span class="tb-sub"></span></div>
     <div id="chord"><span id="chordName">—</span><span id="ring"></span></div>
     <div id="bar"></div>
     <div id="note"></div>
@@ -200,8 +215,8 @@
           <div class="chips" id="mode"><div class="chip on" data-m="trade">Take turns</div><div class="chip" data-m="solo">Magenta solos</div></div></div>
         <div class="field"><div class="fl">Your turn ends</div>
           <div class="chips" id="endMode"><div class="chip on" data-e="all">After every chord</div><div class="chip" data-e="pause">On a pause</div></div></div>
-        <div class="field"><div class="fl">While you look for the chord</div>
-          <div class="chips" id="cue"><div class="chip on" data-c="piano">Repeat it every 2 bars</div><div class="chip" data-c="off">Play it once</div></div></div>
+        <div class="field"><div class="fl">The chord you're looking for</div>
+          <div class="chips" id="cue"><div class="chip on" data-c="once">Play it once</div><div class="chip" data-c="stuck">Again if I go quiet</div><div class="chip" data-c="off">Don't play it</div></div></div>
         <label class="toggle"><input id="ting" type="checkbox" checked> Ting when you land the chord</label>
       </div>
     </details>
@@ -224,7 +239,7 @@
       <div class="in stack">
         <div class="ctl"><label for="tempo">Tempo</label><input id="tempo" type="range" min="50" max="140" step="5" value="80"><output id="tempoV">80</output></div>
         <div class="field"><div class="fl">Drums</div>
-          <div class="chips" id="style"><div class="chip" data-st="none">Off</div><div class="chip on" data-st="swing">Swing</div><div class="chip" data-st="ballad">Ballad brushes</div><div class="chip" data-st="bossa">Bossa</div></div></div>
+          <div class="chips" id="style"><div class="chip on" data-st="none">Off</div><div class="chip" data-st="swing">Swing</div><div class="chip" data-st="ballad">Ballad brushes</div><div class="chip" data-st="bossa">Bossa</div></div></div>
         <div class="ctl"><label for="bandVol">Drum volume</label><input id="bandVol" type="range" min="0" max="1.5" step="0.05" value="0.8"><span></span></div>
         <label class="toggle"><input id="bassOn" type="checkbox"> Bass line</label>
         <div class="ctl"><label for="bassVol">Bass volume</label><input id="bassVol" type="range" min="0.3" max="1" step="0.05" value="1"><span></span></div>
@@ -236,7 +251,7 @@
       <summary><span class="t">Casio sounds</span><span class="v" id="sum-tones"></span></summary>
       <div class="in stack">
         <div class="field"><div class="fl">Magenta's voice</div><div class="chips" id="tones-mel"></div></div>
-        <div class="field"><div class="fl">Chord sound (low piano, sustained)</div><div class="chips" id="tones-pad"></div></div>
+        <div class="field"><div class="fl">Chord clue sound</div><div class="chips" id="tones-pad"></div></div>
         <div class="ctl"><label for="padVol">Chord volume</label><input id="padVol" type="range" min="0.2" max="1" step="0.05" value="0.85"><span></span></div>
         <div class="field"><div class="fl">Chords the app plays</div><div class="chips" id="tones-comp"></div></div>
         <div class="field"><div class="fl">Bass</div><div class="chips" id="tones-bass"></div></div>
@@ -305,12 +320,12 @@ const CHORDS = TUNE.map(([bar, root, q, bass]) => {
 // ---------- What to improvise over: whole tune, or your own sequence of chords ----------
 const byName = new Map(CHORDS.filter(c => !c.name.includes('/')).map(c => [c.name, c]));
 const where = c => c.where || ('bar ' + c.bar);
-const seqr = Sequencer({el: $('seq'), names: [...byName.keys()], storageKey: 'improv-seq', showLength: true,
+const seqr = Sequencer({el: $('seq'), names: [...byName.keys()], storageKey: 'improv-seq', showLength: false,
                         onChange: () => { if (playing) restart(); }});
 function section(){                // the chords for one pass
   const pick = seqr.get();
   if (!pick) return CHORDS;
-  return pick.names.map((n, i) => ({...byName.get(n), beats: pick.beats, where: 'chord ' + (i + 1) + ' of ' + pick.names.length}));
+  return pick.names.map((n, i) => ({...byName.get(n), beats: 4, where: 'chord ' + (i + 1) + ' of ' + pick.names.length}));
 }
 
 // ---------- MIDI out (to the Casio), plus a small built-in synth ----------
@@ -559,17 +574,16 @@ function chordStruck(){
     else { streak++; showStreak(); answerAll(); }
   }
 }
-// ---- sound clue: when it's your turn on a chord, the Casio sounds it so you can find it by ear ----
-let cue = 'piano', lastCueAt = 0, cueChord = null;
+// ---- sound clue: when a chord becomes yours, the Casio plays it once, cleanly: a bass note, then the chord rolled up above middle C ----
+let cue = 'once', lastCueAt = 0, cueChord = null, lastYouAt = 0;
 function playCue(c){
-  if (!c || cue === 'off' || !playing || pick.pad < 0) return;
+  if (!c || cue === 'off' || !playing || pick.pad < 0 || !outs.length) return;
   const at = nextBeatMs(); lastCueAt = at; cueChord = c;
-  if (at - lastStrikeAt < beatMs() * 1.5) return;      // just struck it
   strikePad(c, at);
 }
 document.querySelectorAll('#cue .chip').forEach(el => el.onclick = () => {
   cue = el.dataset.c; document.querySelectorAll('#cue .chip').forEach(x => x.classList.toggle('on', x === el));
-  if (playing && endMode === 'all' && (phase === 'listen' || phase === 'you')) playCue(curChord);
+  if (playing && endMode === 'all' && (phase === 'listen' || phase === 'you') && cue !== 'off') playCue(curChord);
 });
 // ---- gated mode state ----
 let seqList = [], gi = 0, changes = [], compNow = new Set(), compSounding = new Set();
@@ -637,6 +651,7 @@ function onIn(e){
   if (!playing || mode !== 'trade') return;
   const on = cmd === 0x90 && v > 0, off = cmd === 0x80 || (cmd === 0x90 && v === 0);
   if (!on && !off) return;
+  if (on) lastYouAt = performance.now();
   const was = chordComplete();
   if (p < SPLIT) {                                  // chord hand: never counts as your phrase
     if (on) chordHand.add(p); else chordHand.delete(p);
@@ -701,6 +716,23 @@ function showTurn(){
              answer: ['Magenta', 'mag']}[phase];
   t.textContent = m[0]; t.className = m[1];
   $('duet').className = 'duet ' + (phase === 'think' ? 'mag think' : m[1]);
+  document.body.classList.toggle('turn-you', m[1] === 'you');
+  document.body.classList.toggle('turn-mag', phase === 'answer');
+  document.body.classList.toggle('turn-think', phase === 'think');
+  turnText();
+}
+// the big turn sign: who's playing, and how far through the chords you are
+function turnText(){
+  let who = '', sub = '';
+  if (playing && mode === 'trade') {
+    const n = (seqList.length || section().length);
+    if (phase === 'you' || phase === 'listen') { who = 'Your turn'; sub = endMode === 'all' ? `Play each chord once · ${Math.min(gi + 1, n)} of ${n}` : 'Play a phrase, then pause'; }
+    else if (phase === 'think') { who = 'Magenta is thinking'; sub = 'Listen'; }
+    else { who = 'Magenta’s turn'; sub = endMode === 'all' ? 'Listen: it plays every chord once' : 'Listen'; }
+  } else if (playing) { who = 'Magenta solos'; sub = 'Play along'; }
+  const w = document.querySelector('#turnBig .tb-who'), sb = document.querySelector('#turnBig .tb-sub');
+  if (w.textContent !== who) w.textContent = who;
+  if (sb.textContent !== sub) sb.textContent = sub;
 }
 
 function tradeTick(){
@@ -730,7 +762,7 @@ function tradeTick(){
     else if (e.kind === 'coff') { noteOff(e.p, CH.comp); compSounding.delete(e.p); compNow.delete(e.p % 12); }
   }
   if (phase === 'answer' && !pending.length) { phase = 'listen'; if (endMode === 'all') resetToYou(); showTurn(); }   // answer finished: wait for you
-  if (endMode === 'all' && (phase === 'listen' || phase === 'you') && cue !== 'off' && !chordComplete() && performance.now() - lastCueAt > beatMs() * 7.5) playCue(curChord);
+  if (endMode === 'all' && (phase === 'listen' || phase === 'you') && cue === 'stuck' && !chordComplete() && performance.now() - Math.max(lastCueAt, lastYouAt) > beatMs() * 8) playCue(curChord);
   if (endMode === 'all' && (phase === 'listen' || phase === 'you')) setTones(curChord);
   draw();
 }
@@ -752,7 +784,7 @@ const STYLES = {
   ballad: {label: 'Ballad',   swing: 0.6},
   bossa:  {label: 'Bossa nova', swing: 0.5},
 };
-let style = 'swing';
+let style = 'none';
 const swingR = () => STYLES[style].swing;
 // beats on the straight grid → beats on the swung grid, and back
 function warp(x){ const b = Math.floor(x), f = x - b, r = swingR();
@@ -978,7 +1010,7 @@ $('play').onclick = async () => {
 };
 function stop(){
   outs.forEach(o => { try { o.send([0xB0 | CH.pad, 64, 0]); } catch (e) {} }); padNotes.forEach(p => noteOff(p, CH.pad)); padNotes = []; padChord = null;
-  stopBand(); document.body.classList.remove('playing');
+  stopBand(); document.body.classList.remove('playing', 'turn-you', 'turn-mag', 'turn-think');
   playing = false; clearInterval(timer); clearTimeout(nextPass); queue = [];
   token++; allOff(); curChord = null; curNote = null; pending = []; magSounding.clear(); youNow.clear(); chordHand.clear(); tingedAt = -1; compNow.clear(); compSounding.clear(); $('turn').textContent = ''; draw();
   $('play').disabled = !rnn; $('stop').disabled = true; status();
@@ -992,30 +1024,26 @@ $('maxBars').oninput = () => { if (+$('maxBars').value < +$('minBars').value) $(
 $('temp').oninput = () => $('tempV').textContent = (+$('temp').value).toFixed(1);
 
 // ---------- Display: fixed one octave, Sa to Sa ----------
-// ---------- The chord sound: low, bassy piano with the sustain pedal down, under whatever chord is sounding ----------
+// ---------- The chord clue: a bass note, then the chord's colour tones rolled up just above middle C, let ring for a bar ----------
 let padChord = null, padNotes = [];
-function padVoicing(c){                     // root low (C2–B2), its octave, then the other chord tones just above
-  const r = 36 + ((c.root - 36) % 12 + 12) % 12;
-  const upper = [...c.tones].map(pc => (pc - c.root + 12) % 12).filter(i => i).map(i => r + 12 + i);
-  return [r, r + 12, ...upper];
+function padVoicing(c){
+  const bass = 36 + ((c.root - 36) % 12 + 12) % 12;                                                  // C2–B2
+  const upper = [...c.tones].filter(pc => pc !== c.root % 12).map(pc => 60 + ((pc - 60) % 12 + 12) % 12).sort((a, b) => a - b);   // C4–B4
+  return [bass, bass + 12, ...upper];
 }
 const nextBeatMs = () => { const b = Math.ceil(unwarp((performance.now() - t0) / beatMs()) + 0.02); return t0 + warp(b) * beatMs(); };
-// lift the pedal, strike the new chord on the beat, put the pedal back down so it rings
-let lastStrikeAt = -1e9;
+let lastStrikeAt = -1e9, padOffTimer = 0;
 function strikePad(c, at){
   const ch = CH.pad, old = padNotes; lastStrikeAt = at;
-  midiAt(at - 15, [0xB0 | ch, 64, 0]);
   old.forEach(p => midiAt(at - 10, [0x80 | ch, p, 0]));
   padNotes = c ? padVoicing(c) : [];
-  padNotes.forEach((p, i) => midiAt(at, [0x90 | ch, p, i === 0 ? 84 : 66]));
-  if (c) midiAt(at + 20, [0xB0 | ch, 64, 127]);
+  padNotes.forEach((p, i) => midiAt(at + (i < 2 ? 0 : 40 + (i - 2) * 55), [0x90 | ch, p, i < 2 ? 72 : 62]));
+  clearTimeout(padOffTimer);
+  if (c) { const notes = padNotes; padOffTimer = setTimeout(() => { notes.forEach(p => midiAt(performance.now(), [0x80 | ch, p, 0])); if (padNotes === notes) padNotes = []; }, at - performance.now() + beatMs() * 4); }
 }
-function updatePad(){
-  const want = playing && pick.pad >= 0 ? curChord : null;
-  if (want === padChord) return;
-  padChord = want;
-  if (!outs.length) return;
-  strikePad(want, want ? nextBeatMs() : performance.now());
+function updatePad(){           // the clue only sounds on purpose; when play stops, let it go
+  if (playing || !padNotes.length || !outs.length) return;
+  strikePad(null, performance.now());
 }
 const lettered = name => name.replace(/♭/g, 'b');
 // "B♭maj7/A♭" → big root, raised small flat, raised quality, small slash bass
@@ -1048,7 +1076,7 @@ function draw(){
   if ($('chordName').dataset.n !== nm) { $('chordName').dataset.n = nm; $('chordName').innerHTML = curChord ? chordHTML(nm) : '—'; }
   if (mode !== 'trade') setTones(curChord);
   $('note').textContent = curNote != null ? sar(curNote % 12) : '';
-  renderStrip();
+  renderStrip(); turnText();
   if (window.Duo && Duo.ok) {
     Duo.update({you: [...youNow, ...chordHand].map(p => p % 12), mel: curNote == null ? -1 : curNote % 12,
                 magchord: [...compNow], tones: curChord ? [...curChord.pcs] : []});

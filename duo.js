@@ -155,7 +155,7 @@
     all.forEach(k => { k.x0 = Math.max(KB.x0, k.x0); k.x1 = Math.min(KB.x1, k.x1); k.cx = (k.x0 + k.x1) / 2;
       const j = KB.jitter || 0; k.poly = [[k.x0 + rnd(-j, j), k.y0 + rnd(-j, j)], [k.x1 + rnd(-j, j), k.y0 + rnd(-j, j)], [k.x1 + rnd(-j, j), k.y1 + rnd(-j, j)], [k.x0 + rnd(-j, j), k.y1 + rnd(-j, j)]];
       // where a paw lands: black keys in the middle, white keys below the black ones
-      k.paw = k.black ? [k.cx, (KB.top + KB.blackBottom) / 2 + 14] : [k.cx, (KB.blackBottom + KB.bottom) / 2 - 6]; });
+      k.paw = [k.cx, KB.top - 2]; });   // a paw rests on the back edge of its key, so the whole key stays visible (and gets coloured)
     return {whites, blacks, all, KB};
   }
   const keyBox = KB => ({x: KB.x0 - 8, y: KB.top - 8, w: KB.x1 - KB.x0 + 16, h: KB.bottom - KB.top + 16});
@@ -282,7 +282,7 @@
   const SLOTS = ['tail', 'h1', 'h2', 'x1', 'x2', 'x3', 'f1', 'f2'];
   const C = {limbs: {}, R: 380, F: 620, vR: 0, vF: 0, T: 110, t: 0, running: false, last: 0, lastSig: '', extraMood: false, looking: null, centre: 500};
   const FLOOR = () => skin.cat.floor ?? (skin.KB.top - 92);       // where the belly sits, just above the Casio
-  const pawY = (k, hover) => k.paw[1] - (hover ? 44 : 0);
+  const pawY = (k, hover) => k.paw[1] - (hover ? 34 : 0);
   function initCat(){
     SLOTS.forEach((id, i) => { C.limbs[id] = {id, x: 500, tx: 500, y: FLOOR() + 40, ty: FLOOR() + 40, vx: 0, vy: 0, key: null, hover: false, squash: 0, grow: id[0] === 'x' ? 0 : 1, wasLifted: false, used: false}; });
     C.centre = 500; C.R = 370; C.F = 630; C.lastSig = ''; layoutFree([]);
@@ -386,7 +386,7 @@
     const shadow = (x, y, rx, ry, a) => { const gr = c.createRadialGradient(x, y, 0, x, y, rx); gr.addColorStop(0, `rgba(25,14,6,${a})`); gr.addColorStop(1, 'rgba(25,14,6,0)');
       c.save(); c.translate(x, y); c.scale(1, ry / rx); c.translate(-x, -y); c.fillStyle = gr; c.beginPath(); c.arc(x, y, rx, 0, 7); c.fill(); c.restore(); };
     shadow((g.R + g.F) / 2 + 18, g.bottom + 16, (g.F - g.R) * 0.58, 26, 0.32);
-    SLOTS.forEach(id => { const L = C.limbs[id]; if (!L.key || L.grow < 0.5) return; shadow(L.x + 8, L.ty + (L.hover ? 44 : 0) + 10, 30, 10, L.hover ? 0.15 : 0.35); });
+    SLOTS.forEach(id => { const L = C.limbs[id]; if (!L.key || L.grow < 0.5) return; shadow(L.x + 8, L.ty + (L.hover ? 34 : 0) + 10, 30, 10, L.hover ? 0.15 : 0.35); });
     // legs hang behind the belly, straight down
     SLOTS.forEach(id => { if (id === 'tail') return; const L = C.limbs[id]; if (L.grow < 0.02) return;
       const top = g.bottom - Math.min(34, g.T * 0.45), y = top + (L.y - top) * L.grow;
