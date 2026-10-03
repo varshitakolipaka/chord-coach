@@ -139,7 +139,7 @@
   body.skin-kalighat{--paper:#efe2c4;--ink:#15110e;--red:#cf3a22;--dim:#8a7f69;--line:#d4c39f;
     background:radial-gradient(120% 90% at 50% 35%,#f4e9cf 0%,#efe2c4 55%,#e2d0a8 100%) fixed #efe2c4}
   body.duo #kb canvas{display:block}
-  @media (orientation: landscape) and (max-height: 520px){ body.duo #kb{flex:0 1 auto;width:min(66vw, calc((100vh - 74px) * 1.43))} body.duo .lead{flex:1 1 0} #streak{left:max(18px,env(safe-area-inset-left));right:auto} }
+  @media (orientation: landscape) and (max-height: 520px){ body.duo #kb{flex:0 1 auto;width:min(66vw, calc((100vh - 100px) * 1.43))} body.duo .lead{flex:1 1 0} #streak{left:max(18px,env(safe-area-inset-left));right:auto} }
   /* narrow phones: keep the top bar on one line */
   @media (max-width: 480px){
     .top{gap:6px;padding-left:12px;padding-right:8px} .duet{font-size:17px} .duet span{padding:2px 6px}
@@ -247,6 +247,7 @@
 
 <script src="magentamusic.js"></script>
 <script src="rough.js"></script>
+<script src="painter.js"></script>
 <script src="duo.js"></script>
 <script src="skins/kalighat.js"></script>
 <!-- painted stage (p5.brush) is still in the lab: <script src="brush.js"></script><script src="stage.js"></script> -->

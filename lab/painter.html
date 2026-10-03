@@ -1,0 +1,15 @@
+<!doctype html><html><head><meta charset="utf-8">
+<style>@font-face{font-family:'Fraunces';font-weight:100 900;src:url(../fonts/fraunces-latin-full-normal.woff2) format('woff2')}
+body{margin:0;background:#efe2c4} canvas{display:block;width:1000px}</style></head><body>
+<div id="kb" style="display:none;width:1000px"></div>
+<script src="../duo.js"></script><script src="../skins/kalighat.js"></script><script src="../painter.js"></script>
+<script>
+const SARGAM=['Sa','komal Re','Re','komal Ga','Ga','Ma','tivra Ma','Pa','komal Dha','Dha','komal Ni','Ni'];
+document.getElementById('kb').style.display='block';
+Duo.init(document.getElementById('kb'),{label:pc=>SARGAM[(pc-3+12)%12],skin:'kalighat'});
+const {base}=Duo._debug();
+const t0=performance.now();
+const out=Painter.paint(base,{scale:2,seed:3});
+window.ms=performance.now()-t0; window.n=out.strokes;
+document.body.innerHTML=''; document.body.appendChild(out);
+</script></body></html>

@@ -166,26 +166,82 @@
   Duo.P = P;
   Duo.register = s => { Duo.skins[s.id] = s; if (!Duo.order.includes(s.id)) Duo.order.push(s.id); };
 
-  // ---------- painting a personality: picture, key-mark sheets, the cat's body ----------
-    function paintSkin(){
+  // ---------- painting a personality ----------
+  // Everything is first drawn as a plain picture (instant, so the app works straight away), then repainted stroke by
+  // stroke in the background (painter.js): first the scene, which you can watch being painted, then each piece of the
+  // cat, then the key marks. The painted layer sits over the plain one, which fills any gaps between strokes.
+  let pieces = {}, paintToken = 0;
+  const overlay = (flat, painted) => { const c2 = document.createElement('canvas'); c2.width = flat.width; c2.height = flat.height; const x = c2.getContext('2d'); x.drawImage(flat, 0, 0); x.drawImage(painted, 0, 0); return c2; };
+  function paintSkin(){
+    const t0 = performance.now(), token = ++paintToken;
     seedN = skin.seed || 7;
     K = keysFor(skin.KB);
     const b = document.createElement('canvas'); b.width = W * S; b.height = H * S; const c = b.getContext('2d'); c.scale(S, S);
     skin.paint(c, P, K);
-    base = b;
-    const box = keyBox(skin.KB); sheets = {};
+    base = b; Duo.flat = b;
+    const box = keyBox(skin.KB); sheets = {}; const flatSheets = {};
     for (const kind of KINDS) for (const black of [false, true]) {
       const sh = document.createElement('canvas'); sh.width = Math.ceil(box.w * S); sh.height = Math.ceil(box.h * S);
       const sc = sh.getContext('2d'); sc.setTransform(S, 0, 0, S, -box.x * S, -box.y * S);
       skin.markKeys(sc, kind, black ? K.blacks : K.whites, P);
-      sheets[kind + (black ? 'B' : 'W')] = sh;
+      sheets[kind + (black ? 'B' : 'W')] = flatSheets[kind + (black ? 'B' : 'W')] = sh;
     }
     Duo.box = box;
-    // the cat's head is painted once; its body, legs and tail are drawn live (they stretch)
-    const hs = document.createElement('canvas'); hs.width = HS.w * S; hs.height = HS.h * S; const hc = hs.getContext('2d');
-    hc.setTransform(S, 0, 0, S, -HS.x * S, -HS.y * S);
-    skin.cat.paintHead(hc, P, HS);
-    headSprite = hs;
+    // the cat, piece by piece: plain now, painted shortly
+    pieces = {}; const flatPieces = {};
+    Object.entries(skin.cat.pieces).forEach(([name, pc]) => {
+      const cv2 = document.createElement('canvas'); cv2.width = Math.ceil(pc.box.w * S); cv2.height = Math.ceil(pc.box.h * S);
+      const pcx = cv2.getContext('2d'); pcx.setTransform(S, 0, 0, S, -pc.box.x * S, -pc.box.y * S);
+      pc.draw(pcx, P);
+      flatPieces[name] = cv2;
+      pieces[name] = {img: withAfter(cv2, pc), box: pc.box, inner: pc.inner};
+    });
+    headSprite = pieces.head.img;
+    Duo.flatMs = performance.now() - t0;
+    if (!window.Painter) return;
+    // the painting, in the background
+    const cancelled = () => token !== paintToken;
+    const opt = o => Object.assign({scale: S, seed: 3}, skin.painter || {}, o || {});
+    (async () => {
+      let shown = 0;
+      const painted = await Painter.paintAsync(b, opt(), out => {
+        const now = performance.now(); if (now - shown < 120) return; shown = now;
+        base = overlay(b, out); render();
+      }, cancelled);
+      if (!painted) return;
+      base = overlay(b, painted); if (skin.after) { const ac = base.getContext('2d'); ac.setTransform(S, 0, 0, S, 0, 0); skin.after(ac, P); } render();
+      for (const [name, pc] of Object.entries(skin.cat.pieces)) {
+        const img = await Painter.paintAsync(flatPieces[name], opt(Object.assign({radii: [6, 3, 1.6], threshold: 14}, pc.painter || {})), null, cancelled);
+        if (!img) return;
+        pieces[name].img = withAfter(overlay(flatPieces[name], img), pc);
+        if (name === 'head') headSprite = pieces[name].img;
+        drawCat();
+      }
+      for (const key of Object.keys(flatSheets)) {
+        const img = await Painter.paintAsync(flatSheets[key], opt({radii: [8, 4.5], threshold: 24, bristles: 2}), null, cancelled);
+        if (!img) return;
+        sheets[key] = overlay(flatSheets[key], img);
+      }
+      render();
+      Duo.paintMs = performance.now() - t0;
+    })();
+  }
+  // crisp details laid over a piece after painting (whiskers)
+  function withAfter(img, pc){
+    if (!pc.after) return img;
+    const c2 = document.createElement('canvas'); c2.width = img.width; c2.height = img.height; const x = c2.getContext('2d');
+    x.drawImage(img, 0, 0); x.setTransform(S, 0, 0, S, -pc.box.x * S, -pc.box.y * S); pc.after(x, P); return c2;
+  }
+  // draw a piece so that its inner rectangle lands on [x0,y0]-[x1,y1]
+  function place(c, name, x0, y0, x1, y1){
+    const pc = pieces[name]; if (!pc) return;
+    const {box, inner} = pc, sx = (x1 - x0) / (inner.x1 - inner.x0), sy = (y1 - y0) / (inner.y1 - inner.y0);
+    c.drawImage(pc.img, x0 - (inner.x0 - box.x) * sx, y0 - (inner.y0 - box.y) * sy, box.w * sx, box.h * sy);
+  }
+  // draw a piece with its own origin at (x, y), scaled and turned
+  function stamp(c, name, x, y, sx = 1, sy = 1, rot = 0){
+    const pc = pieces[name]; if (!pc) return;
+    c.save(); c.translate(x, y); if (rot) c.rotate(rot); c.scale(sx, sy); c.drawImage(pc.img, pc.box.x, pc.box.y, pc.box.w, pc.box.h); c.restore();
   }
 
   // ---------- the still layer: picture + key marks + names ----------
@@ -325,32 +381,35 @@
     c.setTransform(1, 0, 0, 1, 0, 0); c.clearRect(0, 0, catCv.width, catCv.height);
     if (!headSprite) return;
     c.setTransform(z, 0, 0, z, 0, 0);
-    const g = geom(), look = skin.cat;
-    // shadows of the paws that are down on keys
-    SLOTS.forEach(id => { const L = C.limbs[id]; if (!L.key || L.grow < 0.5) return;
-      c.save(); c.globalAlpha = L.hover ? 0.1 : 0.2; c.fillStyle = '#000'; c.beginPath(); c.ellipse(L.x, L.ty + (L.hover ? 30 : 0) + 12, 24, 6, 0, 0, 7); c.fill(); c.restore(); });
+    const g = geom(), look = skin.cat, lw = look.legW ?? 36;
+    // soft shadows: the body on the Casio, the paws on their keys
+    const shadow = (x, y, rx, ry, a) => { const gr = c.createRadialGradient(x, y, 0, x, y, rx); gr.addColorStop(0, `rgba(25,14,6,${a})`); gr.addColorStop(1, 'rgba(25,14,6,0)');
+      c.save(); c.translate(x, y); c.scale(1, ry / rx); c.translate(-x, -y); c.fillStyle = gr; c.beginPath(); c.arc(x, y, rx, 0, 7); c.fill(); c.restore(); };
+    shadow((g.R + g.F) / 2 + 18, g.bottom + 16, (g.F - g.R) * 0.58, 26, 0.32);
+    SLOTS.forEach(id => { const L = C.limbs[id]; if (!L.key || L.grow < 0.5) return; shadow(L.x + 8, L.ty + (L.hover ? 44 : 0) + 10, 30, 10, L.hover ? 0.15 : 0.35); });
     // legs hang behind the belly, straight down
     SLOTS.forEach(id => { if (id === 'tail') return; const L = C.limbs[id]; if (L.grow < 0.02) return;
-      const top = g.bottom - Math.min(30, g.T * 0.4), y = top + (L.y - top) * L.grow;
-      c.globalAlpha = L.hover && L.key ? 0.62 : 1;      // on your turn the hint paws are ghostly
-      look.leg(c, {x: L.x, top, y, squash: L.squash, pressed: !!L.key && !L.hover, hover: L.hover && !!L.key, extra: id[0] === 'x', hind: id[0] === 'h'}, P); c.globalAlpha = 1; });
+      const top = g.bottom - Math.min(34, g.T * 0.45), y = top + (L.y - top) * L.grow;
+      c.globalAlpha = L.hover && L.key ? 0.6 : 1;      // on your turn the hint paws are ghostly
+      if (y - 8 > top) place(c, id[0] === 'h' ? 'legHind' : 'leg', L.x - lw / 2, top, L.x + lw / 2, y - 8);
+      stamp(c, id[0] === 'x' ? 'pawExtra' : 'paw', L.x, y, 1 + 0.22 * L.squash, 1 - 0.25 * L.squash);
+      c.globalAlpha = 1; });
     // the tail: on a note it hangs straight down from the rump; otherwise it waves in the air
-    const Lt = C.limbs.tail, rx = g.R + 8, ry = g.mid;
-    let tail;
-    if (Lt.key) tail = bez([rx + 10, ry], [Lt.x - 30, ry - 70], [Lt.x - 6, ry - 40], [Lt.x, Lt.y], 24);
-    else { const sw = Math.sin(C.t * 2.4) * 16; tail = bez([rx + 14, ry], [rx - 70, ry - 10], [rx - 80 + sw, ry - 120], [rx - 30 + sw, ry - 160], 24); }
-    look.tail(c, tail, {down: !!Lt.key, squash: Lt.squash}, P);
-    look.body(c, g, P);
+    const Lt = C.limbs.tail;
+    if (Lt.key) { const tw = look.tailW ?? 28, top = g.mid - 10; if (Lt.y - 6 > top) place(c, 'tailDown', Lt.x - tw / 2, top, Lt.x + tw / 2, Lt.y - 6); stamp(c, 'tailTip', Lt.x, Lt.y, 1 + 0.2 * Lt.squash, 1 - 0.2 * Lt.squash); }
+    else stamp(c, 'tailUp', g.R + 16, g.mid - 6, 1, 1, Math.sin(C.t * 2.4) * 0.09);
+    // the body stretches between its ends
+    place(c, 'body', g.R, g.top, g.F, g.bottom);
     // the head rides on the front end
-    const hx = g.F - (skin.cat.headIn ?? 30), hy = g.top + (skin.cat.headDrop ?? 18);
+    const hx = g.F - (look.headIn ?? 30), hy = g.top + (look.headDrop ?? 18);
     c.save(); c.translate(hx, hy); c.rotate(Math.max(-0.12, Math.min(0.12, C.vF / 2500)));
-    c.drawImage(headSprite, HS.x, HS.y, HS.w, HS.h);
+    stamp(c, 'head', 0, 0);
     if (look.eyes) {   // the eyes follow the note it's playing
       const tgt = C.looking ? C.looking.paw : [hx + 200, 560];
       look.eyes.forEach(([ex, ey, r]) => {
         const a = Math.atan2(tgt[1] - (hy + ey), tgt[0] - (hx + ex));
-        c.fillStyle = look.pupil || '#111'; c.beginPath(); c.ellipse(ex + Math.cos(a) * r * 0.42, ey + Math.sin(a) * r * 0.42, r * 0.42, r * 0.62, 0, 0, 7); c.fill();
-        c.fillStyle = '#fff'; c.beginPath(); c.arc(ex + Math.cos(a) * r * 0.42 - r * 0.15, ey + Math.sin(a) * r * 0.42 - r * 0.25, r * 0.14, 0, 7); c.fill();
+        c.fillStyle = look.pupil || '#111'; c.beginPath(); c.ellipse(ex + Math.cos(a) * r * 0.42, ey + Math.sin(a) * r * 0.42, r * 0.4, r * 0.62, 0, 0, 7); c.fill();
+        c.fillStyle = 'rgba(255,250,235,0.9)'; c.beginPath(); c.arc(ex + Math.cos(a) * r * 0.42 - r * 0.14, ey + Math.sin(a) * r * 0.42 - r * 0.26, r * 0.15, 0, 7); c.fill();
       });
     }
     c.restore();
@@ -397,5 +456,5 @@
       return true;
     } catch (e) { console.warn('painting failed', e); Duo.ok = false; return false; }
   };
-  Duo._debug = () => ({C, K});
+  Duo._debug = () => ({C, K, base, headSprite, sheets});
 })();
