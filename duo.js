@@ -189,7 +189,7 @@
     Duo.box = box;
     // the print's own border, in each player's colour
     borders = {};
-    ['you', 'mag'].forEach(t => { const bc = document.createElement('canvas'); bc.width = W * S; bc.height = H * S; const bx = bc.getContext('2d'); bx.scale(S, S);
+    ['you', 'mag', 'good'].forEach(t => { const bc = document.createElement('canvas'); bc.width = W * S; bc.height = H * S; const bx = bc.getContext('2d'); bx.scale(S, S);
       if (skin.border) skin.border(bx, P, t); else plainBorder(bx, t); borders[t] = bc; });
     // the hanging 8-bit display: a dim grid of LEDs, lit live in render()
     if (skin.display) { const D = skin.display, bx = base.getContext('2d'); bx.save(); bx.setTransform(S, 0, 0, S, 0, 0);
@@ -260,8 +260,8 @@
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, cv.width, cv.height);
     ctx.drawImage(base, 0, 0, W * S, H * S, 0, 0, W * z, H * z);
     if (state.turn && borders[state.turn]) ctx.drawImage(borders[state.turn], 0, 0, W * S, H * S, 0, 0, W * z, H * z);
-    const you = new Set(state.you), tone = new Set(state.tones), mc = new Set(state.magchord), got = new Set(state.covered || []);
-    const kindOf = k => you.has(k.pc) ? (tone.has(k.pc) ? 'got' : 'you') : state.mel === k.pc ? 'mel' : mc.has(k.pc) ? 'mc' : got.has(k.pc) ? 'got' : tone.has(k.pc) ? 'target' : null;
+    const you = new Set(state.you), tone = new Set(state.tones), mc = new Set(state.magchord), got = new Set(state.covered || []), right = new Set(state.right || []);
+    const kindOf = k => you.has(k.pc) ? (tone.has(k.pc) || right.has(k.pc) ? 'got' : 'you') : state.mel === k.pc ? 'mel' : mc.has(k.pc) ? 'mc' : got.has(k.pc) ? 'got' : tone.has(k.pc) ? 'target' : null;
     const box = Duo.box, pad = skin.KB.markPad ?? 5;
     const blit = (src, k) => {
       const x = k.x0 - pad, y = k.y0 - pad, w = k.x1 - k.x0 + pad * 2, h = k.y1 - k.y0 + pad * 2;
@@ -345,7 +345,7 @@
     c.restore();
   }
   function plainBorder(c, t){
-    const col = t === 'you' ? '#1f74c8' : '#e8489a';
+    const col = t === 'you' ? '#1f74c8' : t === 'good' ? '#2fa35a' : '#e8489a';
     c.save(); c.strokeStyle = col; c.lineWidth = 14; c.lineJoin = 'round'; c.strokeRect(12, 12, W - 24, H - 24); c.restore();
   }
 

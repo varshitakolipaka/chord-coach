@@ -130,15 +130,16 @@
   // the print's border, brushed in the colour of whoever is playing
   function border(c, PP, turn){
     P = PP; B.seed(turn === 'you' ? 41 : 43);
-    const box = {x: 0, y: 0, w: 1000, h: 700}, ink = turn === 'you' ? 'blue' : 'pink';
-    const sh = Riso.sheet(box, P.S, [ink]), x = sh.ink(ink);
+    const box = {x: 0, y: 0, w: 1000, h: 700}, inks = turn === 'you' ? ['blue'] : turn === 'good' ? ['yellow', 'blue'] : ['pink'];   // landed it: yellow over blue prints green
+    const sh = Riso.sheet(box, P.S, inks);
     const E = 16, w = 26;
     [[[E, E], [1000 - E, E]], [[1000 - E, E], [1000 - E, 700 - E]], [[1000 - E, 700 - E], [E, 700 - E]], [[E, 700 - E], [E, E]]].forEach(([a, b2]) => {
       for (let pass = 0; pass < 2; pass++) { const n = 3; for (let i = 0; i < n; i++) {
         const t0 = i / n - 0.04, t1 = (i + 1) / n + 0.04, p0 = [a[0] + (b2[0] - a[0]) * t0, a[1] + (b2[1] - a[1]) * t0], p1 = [a[0] + (b2[0] - a[0]) * t1, a[1] + (b2[1] - a[1]) * t1];
-        stroke(x, [p0, [(p0[0] + p1[0]) / 2 + P.rnd(-2, 2), (p0[1] + p1[1]) / 2 + P.rnd(-2, 2)], p1], {w: w * P.rnd(0.85, 1.1), press: 'flat', load: 1.6}); } }
+        const mid = [(p0[0] + p1[0]) / 2 + P.rnd(-2, 2), (p0[1] + p1[1]) / 2 + P.rnd(-2, 2)], ww = w * P.rnd(0.85, 1.1);
+        inks.forEach(n => stroke(sh.ink(n), [p0, mid, p1], {w: ww, press: 'flat', load: 1.6})); } }
     });
-    stampTo(c, print(sh, {seed: turn === 'you' ? 5 : 6}), box);
+    stampTo(c, print(sh, {seed: turn === 'you' ? 5 : turn === 'good' ? 7 : 6}), box);
   }
 
   function label(k, kind){
