@@ -832,6 +832,7 @@ const GAMES = {
   rhythm: {name: 'Rhythm echo', short: 'RHYTHM', blurb: 'Magenta taps a rhythm on one note. Copy the rhythm, on any note.'},
   guide:  {name: 'Guide tones', short: 'GUIDE', blurb: 'Find the chord’s 3rd or 7th. From level 2, land it on beat 1.'},
   three:  {name: 'Three notes', short: '3 NOTES', blurb: 'Play four notes in a row using only the three lit notes. Strays just restart the count.'},
+  twofive:{name: 'ii–V–I', short: 'ii-V-I', blurb: 'Four bars, ii V I I, in time. L1 copy the guide-tone line, keys lit · L2 same, by ear, on beat 1 · L3 every note of each chord in its bar · L4 improvise, land on the I’s 3rd. The tune’s keys, then all twelve.'},
 };
 let game = 'free';
 try { game = localStorage.getItem('improv-game') || 'free'; if (!GAMES[game]) game = 'free'; } catch (e) {}
@@ -909,12 +910,12 @@ function answerNotes(r){
   if (r.game === 'three') return [0, 1, 2, 1].map((j, i) => ({pitch: into(60 + r.allowed[j]), s: i * 4, e: i * 4 + 3}));
   return [];
 }
-const answerText = r => r.game === 'echo' ? 'it was ' + sarNames(r.target) : r.game === 'rhythm' ? 'it went like this' :
+const answerText = r => r.game === 'twofive' ? (r.level <= 2 ? 'the line: ' + sarNames(r.line) : r.level === 3 ? 'arpeggios, like this' : 'land on ' + sarNames(third(r.chords[2]))) : r.game === 'echo' ? 'it was ' + sarNames(r.target) : r.game === 'rhythm' ? 'it went like this' :
   r.game === 'guide' ? 'guide tones: ' + sarNames(r.target) : 'like this: ' + sarNames(r.allowed);
 function solved(){
   if (G.solved) return;
   G.solved = true; G.score++; G.wins++; G.misses = 0; ting(G.round.c);
-  let msg = '✓ ' + (G.round.game === 'echo' ? 'yes! ' + sarNames(G.round.target) : G.round.game === 'rhythm' ? 'in the pocket!' : G.round.game === 'guide' ? 'guide tone!' : 'tasty!');
+  let msg = '✓ ' + (G.round.game === 'twofive' ? ['', 'guide-tone line!', 'by ear!', 'every tone!', 'landed it!'][G.round.level] : G.round.game === 'echo' ? 'yes! ' + sarNames(G.round.target) : G.round.game === 'rhythm' ? 'in the pocket!' : G.round.game === 'guide' ? 'guide tone!' : 'tasty!');
   if (G.wins >= 3 && G.level < 4) { G.level++; G.wins = 0; msg += ' · level ' + G.level; }
   say(msg, 'green'); streak = G.score; showStreak(); draw();
 }
@@ -930,6 +931,7 @@ function gameTick(k){
   const b = Math.floor(k / BAR);
   if (b === G.seg) return;
   G.seg = b;
+  if (game === 'twofive') return tick251(b);
   if (b === 0) { phase = 'listen'; curChord = seqList[0]; G.stage = 'count'; G.ri = -1; G.round = null; say('ready', 'white', 0); playCue(curChord); showTurn(); return; }
   // close the bar that just ended
   let next = G.stage === 'listen' ? 'search' : 'listen';
@@ -959,6 +961,7 @@ function checkRhythmBar(end){ const on = (G.barNotes || []).map(n => n.s); if (r
 function gameNote(p){   // a note-on during your hunt: nothing buzzes, it just listens for the answer
   if (phase !== 'you' || !G.round || G.solved) return;
   const k = stepPos(), inBar = k - Math.floor(k / BAR) * BAR, r = G.round, pc = p % 12;
+  if (r.game === 'twofive') return note251(pc, k);
   G.mine.push({p, s: k}); (G.barNotes = G.barNotes || []).push({p, s: inBar});
   if (r.game === 'echo') {                // the last notes you played are the ones you settled on
     const tail = G.mine.slice(-r.n).map(m => m.p % 12);
@@ -976,6 +979,7 @@ function gameNote(p){   // a note-on during your hunt: nothing buzzes, it just l
 }
 function gameState(){   // what the painting shows during a game
   const r = G.round, you = phase === 'you';
+  if (game === 'twofive') return state251();
   let tones = [], right = [], magchord = [], hideMag = false;
   if (r) {
     if (r.game === 'three') tones = r.allowed;
@@ -985,6 +989,109 @@ function gameState(){   // what the painting shows during a game
   }
   return {tones, right, magchord, hideMag, msg: G.msg, msgCol: G.msgCol, label: GAMES[game].short + ' ' + G.level,
           score: '★' + G.score, good: G.solved && you, bars: G.stage === 'search' ? G.left : 0};
+}
+
+// ---- ii–V–I: four bars (ii, V, I, I) in strict time. Magenta plays it through once, then you get a pass (or a few).
+// Each chord is struck once at the top of its bar and held; nothing else sounds while you play.
+let tries251 = 2;
+try { tries251 = +localStorage.getItem('improv-tries') || 2; } catch (e) {}
+const QUAL = {m7: 'm7', '7': '7', maj7: 'maj7', 'ø': 'm7b5'};
+function mkChord(r, q){       // any chord, built the same way as the tune's
+  const low = 48 + ((r - 48) % 12 + 12) % 12;
+  return {bar: 0, name: WEST[r] + q, mm: WEST[r].replace('♭', 'b') + QUAL[q], root: r, beats: 4,
+          voicing: SHELL[q].map(i => low + i), pcs: new Set(SHELL[q].map(i => (r + i) % 12)),
+          tones: new Set(FULL[q].map(i => (r + i) % 12)), scale: new Set(SCALE[q].map(i => (r + i) % 12))};
+}
+// the other keys skip E and B, whose ii and V would need sharps this app spells as flats
+const TUNE251 = [{k: 3, minor: false}, {k: 0, minor: true}, {k: 5, minor: true}];   // E♭ major (bars 1–2), C minor, F minor
+const twoFive = (k, minor) => minor ? [mkChord((k + 2) % 12, 'ø'), mkChord((k + 7) % 12, '7'), mkChord(k, 'm7')]
+                                    : [mkChord((k + 2) % 12, 'm7'), mkChord((k + 7) % 12, '7'), mkChord(k, 'maj7')];
+const closest = (pc, from) => from - 6 + ((pc - (from - 6)) % 12 + 12) % 12;      // the closest pitch with that name
+function voiceLine(pcs){ let p = into(60 + pcs[0]); return pcs.map((pc, i) => p = i ? closest(pc, p) : p); }
+function make251(level){
+  let key;
+  do { key = level <= 2 || Math.random() < 0.5 ? choose(TUNE251) : {k: choose([0, 1, 2, 3, 5, 6, 7, 8, 9, 10]), minor: Math.random() < 0.4}; }
+  while (key.k + '' + key.minor === G.lastKey);
+  G.lastKey = key.k + '' + key.minor;
+  const chords = twoFive(key.k, key.minor), [ii, V, I] = chords;
+  const up = Math.random() < 0.5;                       // 3→7→3 or 7→3→7: each step a common tone or a half/whole step down
+  const line = up ? [third(ii)[0], seventh(V)[0], third(I)[0]] : [seventh(ii)[0], third(V)[0], seventh(I)[0]];
+  const r = {game: 'twofive', level, chords, line, key: WEST[key.k] + (key.minor ? ' minor' : ' major'), c: I};
+  const lineNotes = () => voiceLine(line).map((p, i) => ({pitch: p, s: i * BAR, e: i < 2 ? i * BAR + BAR - 0.4 : 4 * BAR - 0.4}));
+  const lick = () => {                                  // chord tones on the beats through ii and V, landing on the I's 3rd
+    const out = [];
+    [ii, V].forEach((c, i) => ruleLick(c, 4, Math.min(level, 2)).forEach(n => out.push({pitch: n.pitch, s: n.s + i * BAR, e: n.e + i * BAR})));
+    const last = out[out.length - 1].pitch, t3 = closest(third(I)[0], last);
+    out.push({pitch: t3, s: 2 * BAR, e: 2 * BAR + 12});
+    return out;
+  };
+  const arps = () => {
+    const out = [];
+    chords.forEach((c, i) => { const ord = [...c.tones].sort((a, b) => ((a - c.root + 12) % 12) - ((b - c.root + 12) % 12)); let p = into(60 + c.root);
+      ord.forEach((pc, j) => { if (j) p = p + ((pc - p) % 12 + 12) % 12; out.push({pitch: p, s: i * BAR + j * 4, e: i * BAR + j * 4 + 3.4}); }); });
+    return out;
+  };
+  r.call = level <= 2 ? lineNotes() : lick();
+  r.answer = level <= 2 ? lineNotes() : level === 3 ? arps() : lick();
+  r.listen = level === 1 ? 'listen · the guide tones' : level === 2 ? 'listen · guide tones, by ear' : 'listen · ' + r.key;
+  return r;
+}
+function schedulePass(r, start, notes){
+  pending.filter(e => e.kind === 'off' || e.kind === 'coff').forEach(e => e.kind === 'off' ? (noteOff(e.p), magSounding.delete(e.p)) : (noteOff(e.p, CH.comp), compSounding.delete(e.p), compNow.delete(e.p % 12)));
+  pending = [];
+  [[0, BAR], [BAR, BAR], [2 * BAR, 2 * BAR]].forEach(([s0, len], i) => r.chords[i].voicing.forEach(p => {
+    pending.push({step: start + s0, kind: 'con', p, len}); pending.push({step: start + s0 + len - 0.2, kind: 'coff', p}); }));
+  notes.forEach(n => { pending.push({step: start + n.s, kind: 'on', p: n.pitch, len: n.e - n.s}); pending.push({step: start + n.e, kind: 'off', p: n.pitch}); });
+  const order = {coff: 0, off: 1, chord: 2, con: 3, on: 4};
+  pending.sort((x, y) => x.step - y.step || order[x.kind] - order[y.kind]);
+}
+function bar251(){ const ci = Math.min(G.pb, 2); curChord = G.round.chords[ci]; gi = ci; curIdx = ci; setTones(curChord); }
+function pass251(stage, b){
+  const r = G.round;
+  G.stage = stage; G.pb = 0; G.passStart = b * BAR; G.hit = [false, false, false]; G.got = [new Set(), new Set(), new Set()];
+  seqList = r.chords; bar251();
+  schedulePass(r, b * BAR, stage === 'listen' ? r.call : stage === 'reveal' ? r.answer : []);
+  phase = stage === 'you' ? 'you' : 'answer'; G.revealing = stage === 'reveal';
+  if (stage === 'listen') say(r.listen, 'white');
+  else if (stage === 'you') say(r.level === 4 ? 'land on ' + sarNames(third(r.chords[2])) + ' · beat 1' : '', 'yellow');
+  showTurn();
+}
+function newRound251(){ G.round = make251(G.level); G.solved = false; G.left = tries251; G.ri++; }
+function tick251(b){
+  if (b === 0) { newRound251(); G.stage = 'count'; seqList = G.round.chords; G.pb = 0; bar251(); phase = 'listen'; say('ready · ' + G.round.key, 'white'); playCue(curChord); showTurn(); return; }
+  if (G.stage === 'count') return pass251('listen', b);
+  G.pb++;
+  if (G.pb < 4 && !(G.stage === 'you' && G.solved)) { bar251(); return; }     // still inside the pass
+  if (G.stage === 'listen') return pass251('you', b);
+  if (G.stage === 'you' && !G.solved) {
+    if (--G.left > 0) { pass251('you', b); say('again · ' + (G.round.level === 4 ? 'land on ' + sarNames(third(G.round.chords[2])) : (tries251 - G.left + 1) + ' of ' + tries251), 'yellow', G.round.level === 4 ? 99 : 4); return; }
+    missed(); const msg = G.msg, col = G.msgCol; pass251('reveal', b); say(msg, col); return;
+  }
+  newRound251(); pass251('listen', b);                 // solved, or the reveal is over: a new key
+}
+function note251(pc, k){
+  const r = G.round, rel = k - G.passStart;
+  const ti = Math.min(2, Math.floor((rel + 1) / BAR)), off = rel - ti * BAR;      // a step early still counts for the next chord
+  if (ti < 0 || G.hit[ti]) return;
+  if (r.level <= 2) { if (pc === r.line[ti] && (r.level === 1 || off <= 3)) G.hit[ti] = true; }
+  else if (r.level === 3) { G.got[ti].add(pc); if ([...r.chords[ti].tones].every(t => G.got[ti].has(t))) G.hit[ti] = true; }
+  else { if (ti < 2) G.hit[ti] = true; else if (third(r.chords[2]).includes(pc) && off <= 3) G.hit[2] = true; }
+  if (G.hit.every(Boolean)) solved();
+}
+function state251(){
+  const r = G.round, you = phase === 'you' && G.stage === 'you', ci = Math.min(G.pb, 2);
+  let tones = [], right = [], notes = [], hideMag = false;
+  if (r) {
+    const c = r.chords[ci];
+    if ((r.level === 2 && G.stage === 'listen') || you) hideMag = true;   // by ear, and your pass: the chord sounds but its keys stay dark
+    if (you && r.level === 1 && !G.hit[ci]) tones = [r.line[ci]];
+    right = r.level <= 2 ? [r.line[ci]] : r.level === 3 ? [...c.tones] : ci === 2 ? third(c) : [...c.tones];
+    if (you && r.level <= 2) notes = r.line.map((pc, i) => ({name: r.level === 1 || G.hit[i] ? sar(pc) : '•', pc, done: G.hit[i]}));
+    if (you && r.level === 3) notes = [...c.tones].sort((a, b) => ((a - c.root + 12) % 12) - ((b - c.root + 12) % 12)).map(pc => ({name: sar(pc), pc, done: G.got[ci].has(pc)}));
+  }
+  const msg = you && notes.length && !(G.msg && performance.now() < G.msgUntil && G.msg.startsWith('again')) && !G.solved ? '' : G.msg;
+  return {tones, right, magchord: [], hideMag, notes, msg, msgCol: G.msgCol, label: GAMES[game].short + ' ' + G.level,
+          score: '★' + G.score, good: G.solved && phase === 'you', bars: 0};
 }
 // ---- trading bars: a strict clock. Bar 0 counts you in; then you get a bar, Magenta gets a bar, on the same chord.
 // Land the chord (all its notes together) somewhere in your bar and the next chord is yours; miss it and you go again.
@@ -1121,7 +1228,7 @@ function startTrade(){
   grid = []; gridStart = []; gridIdx = []; section().forEach((c, j) => { for (let i = 0; i < c.beats * SPQ; i++) { grid.push(c); gridStart.push(i === 0); gridIdx.push(j); } });
   t0 = performance.now() + 300; lastStep = -1; pending = []; phrase = []; phase = 'listen'; token++;
   seqList = section(); streak = 0; showStreak(); barTurn = {seg: -1, planned: false, plan: null, landed: false};
-  Object.assign(G, {seg: -1, stage: 'count', ri: -1, round: null, next: null, mine: [], score: 0, wins: 0, misses: 0, solved: false, revealing: false, reveal: [], revealUntil: 0, msg: ''});
+  Object.assign(G, {pb: 0, hit: [], got: [], lastKey: '', seg: -1, stage: 'count', ri: -1, round: null, next: null, mine: [], score: 0, wins: 0, misses: 0, solved: false, revealing: false, reveal: [], revealUntil: 0, msg: ''});
   if (endMode === 'bar') { gi = 0; curChord = seqList[0]; covered = new Set(); struckThis = false; } else resetToYou();
   changes = [{step: 0, c: seqList[0]}];
   startBand(t0);
@@ -1439,7 +1546,7 @@ function draw(){
       Duo.update({you: [...youNow, ...chordHand].map(p => p % 12), mel: gs.hideMag ? -1 : curNote == null ? -1 : curNote % 12,
                   magchord: gs.hideMag ? [] : [...compNow], tones: gs.tones, right: gs.right, covered: [],
                   turn: magTurn ? 'mag' : gs.good ? 'good' : 'you', count: G.seg <= 0,
-                  chord: curChord ? {name: lettered(curChord.name), notes: [], step: gs.score, label: gs.label, msg: gs.msg, msgCol: gs.msgCol, bars: gs.bars} : null,
+                  chord: curChord ? {name: lettered(curChord.name), notes: gs.notes || [], step: gs.score, label: gs.label, msg: gs.msg, msgCol: gs.msgCol, bars: gs.bars} : null,
                   beat: performance.now() >= t0 ? (() => { const bi = barInfo(Math.floor(stepPos())); return {i: Math.floor(bi.inBar / 4), who: G.seg <= 0 ? 'count' : magTurn ? 'mag' : 'you'}; })() : null});
       return;
     }
@@ -1712,8 +1819,13 @@ function renderGames(){
   $('gameChips').innerHTML = Object.entries(GAMES).map(([id, g]) => `<div class="chip${id === game ? ' on' : ''}" data-g="${id}">${g.name}</div>`).join('');
   $('gameBlurb').textContent = GAMES[game].blurb;
   $('gameFind').style.display = game === 'free' ? 'none' : 'flex';
+  if (game === 'twofive') {     // a ii–V–I is four bars, so you get whole tries at it rather than bars
+    $('gameFind').innerHTML = '<span>Tries</span>' + [1, 2, 3].map(n => `<div class="chip${n === tries251 ? ' on' : ''}" data-t="${n}">${n}</div>`).join('');
+    $('gameFind').querySelectorAll('.chip').forEach(el => el.onclick = () => { tries251 = +el.dataset.t; try { localStorage.setItem('improv-tries', tries251); } catch (e) {} renderGames(); });
+  } else {
   $('gameFind').innerHTML = '<span>Time to find it</span>' + [1, 2, 3, 4].map(n => `<div class="chip${n === findBars ? ' on' : ''}" data-f="${n}">${n} bar${n > 1 ? 's' : ''}</div>`).join('');
   $('gameFind').querySelectorAll('.chip').forEach(el => el.onclick = () => { findBars = +el.dataset.f; try { localStorage.setItem('improv-find', findBars); } catch (e) {} renderGames(); });
+  }
   $('gameChips').querySelectorAll('.chip').forEach(el => el.onclick = () => { game = el.dataset.g; try { localStorage.setItem('improv-game', game); } catch (e) {} renderGames(); });
 }
 renderGames();
