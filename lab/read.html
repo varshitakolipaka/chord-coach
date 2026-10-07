@@ -1,0 +1,16 @@
+<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>@font-face{font-family:"Petaluma";font-display:block;src:url(../fonts/petaluma.woff2) format("woff2")}
+body{background:#efe6d2;margin:0;padding:16px;font-family:system-ui}.card{background:#fbf6ea;border:2px solid #1e1b1d;border-radius:8px;box-shadow:4px 4px 0 #ffcd2e;margin:0 auto 18px;max-width:1000px}</style>
+<div class="card" id="a"></div><div class="card" id="b"></div><div class="card" id="c" style="max-width:420px"></div>
+<script src="../vendor/vexflow-core.js"></script><script src="../score.js"></script>
+<script>
+const SARGAM=['Sa','komal Re','Re','komal Ga','Ga','Ma','tivra Ma','Pa','komal Dha','Dha','komal Ni','Ni'], sar=pc=>SARGAM[(pc-3+12)%12];
+Score.ready().then(()=>{
+  const v=Score.fourths('Bb','video'); console.log(v.notes.map(n=>n.key).join(' '));
+  Score.render(document.getElementById('a'), v, {status:{0:'ok',1:'ok',2:'slip',3:'miss'}, cur:4, who:'you', ghost:{midi:72,i:4}, sargam:sar});
+  const u=Score.fourths('Eb','updown'); console.log(u.notes.map(n=>n.key).join(' '));
+  Score.render(document.getElementById('b'), u, {status:{}, cur:30, who:'mag', sargam:sar, perLine:24});
+  Score.render(document.getElementById('c'), Score.fourths('Eb','video'), {status:{}, cur:0, who:'you', sargam:sar, ghost:{midi:55,i:0}});
+  window.done=true;
+});
+</script>

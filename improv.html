@@ -142,6 +142,17 @@
   .gp-find{gap:6px;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:var(--char)} .gp-find .chip{font-size:13px;padding:4px 10px}
   .gp-blurb{font-size:13px;font-weight:650;color:var(--char);text-align:center;min-height:17px}
   body.playing .gamepick{display:none}
+  /* sheet music: a printed card of real notation above the painting, with a playhead */
+  @font-face{font-family:"Petaluma";font-style:normal;font-weight:400;font-display:block;src:url(fonts/petaluma.woff2) format("woff2")}
+  .score{display:none;position:relative;width:min(calc(100% - 32px), 1100px);margin:6px auto 10px;background:#fbf6ea;border:2px solid var(--ink);border-radius:8px;box-shadow:4px 4px 0 #ffcd2e;overflow:hidden}
+  body.reading .score{display:block} body.reading .strip{display:none}
+  .score svg{display:block}
+  .score .cur{position:absolute;width:3px;margin-left:-1.5px;border-radius:2px;background:#0f6fbf;pointer-events:none;display:none;box-shadow:0 0 6px rgba(15,111,191,.45)}
+  .score .cur.mag{background:#e2338f;box-shadow:0 0 6px rgba(226,51,143,.45)}
+  .score .pg{position:absolute;right:10px;top:6px;font-weight:800;font-size:12px;color:var(--dim)}
+  body.reading.duo #kb{width:min(100%, calc((100vh - 150px - var(--scoreH, 190px)) * 1.43))}
+  .gp-find .sep{width:1px;height:20px;background:var(--line);margin:0 4px}
+  .gp-find .chip.tg:not(.on){opacity:.75}
   @media (orientation: landscape) and (max-height: 520px){ .gamepick{flex-direction:row;padding-top:0} .gp-blurb{display:none} .gamepick .chip{font-size:13px;padding:4px 10px} }
   /* the painting is the interface: chord, notes and turn all live inside it */
   body.duo .lead{display:none}
@@ -191,6 +202,7 @@
   <button id="menuBtn" aria-label="Settings">⚙︎</button>
 </header>
 <div class="strip" id="strip"></div>
+<div class="score" id="score"><div id="scoreSvg"></div><div class="cur" id="scoreCur"></div><div class="pg" id="scorePg"></div></div>
 <div class="gamepick" id="gamepick"><div class="chips" id="gameChips"></div><div class="gp-blurb" id="gameBlurb"></div><div class="row gp-find" id="gameFind"></div></div>
 
 <main class="stage">
@@ -299,6 +311,8 @@
 <script src="skins/kalighat.js"></script>
 <!-- painted stage (p5.brush) is still in the lab: <script src="brush.js"></script><script src="stage.js"></script> -->
 <script src="seq.js"></script>
+<script src="vendor/vexflow-core.js"></script>
+<script src="score.js"></script>
 <script>
 // ---------- Names ----------
 const WEST = ['C','D♭','D','E♭','E','F','G♭','G','A♭','A','B♭','B'];
@@ -832,6 +846,7 @@ const GAMES = {
   rhythm: {name: 'Rhythm echo', short: 'RHYTHM', blurb: 'Magenta taps a rhythm on one note. Copy the rhythm, on any note.'},
   guide:  {name: 'Guide tones', short: 'GUIDE', blurb: 'Find the chord’s 3rd or 7th. From level 2, land it on beat 1.'},
   three:  {name: 'Three notes', short: '3 NOTES', blurb: 'Play four notes in a row using only the three lit notes. Strays just restart the count.'},
+  read:   {name: 'Sheet music', short: 'READ', blurb: 'Read it off the staff: the scale in stacked 4ths, a triplet per step. Magenta plays it first, then it’s yours. A wrong note shows in red where you played it.'},
   twofive:{name: 'ii–V–I', short: 'ii-V-I', blurb: 'Four bars, ii V I I, in time. L1 copy the guide-tone line, keys lit · L2 same, by ear, on beat 1 · L3 every note of each chord in its bar · L4 improvise, land on the I’s 3rd. The tune’s keys, then all twelve.'},
 };
 let game = 'free';
@@ -959,7 +974,9 @@ function gameTick(k){
 function rhythmMatches(on, r){ return on.length === r.target.length && on.every((s0, i) => Math.abs(s0 - r.target[i]) <= r.tol); }
 function checkRhythmBar(end){ const on = (G.barNotes || []).map(n => n.s); if (rhythmMatches(on, G.round)) solved(); }
 function gameNote(p){   // a note-on during your hunt: nothing buzzes, it just listens for the answer
+  if (game === 'read') return readNote(p);
   if (phase !== 'you' || !G.round || G.solved) return;
+  if (game === 'read') return readNote(p);
   const k = stepPos(), inBar = k - Math.floor(k / BAR) * BAR, r = G.round, pc = p % 12;
   if (r.game === 'twofive') return note251(pc, k);
   G.mine.push({p, s: k}); (G.barNotes = G.barNotes || []).push({p, s: inBar});
@@ -1093,6 +1110,127 @@ function state251(){
   return {tones, right, magchord: [], hideMag, notes, msg, msgCol: G.msgCol, label: GAMES[game].short + ' ' + G.level,
           score: '★' + G.score, good: G.solved && phase === 'you', bars: 0};
 }
+
+// ---- Sheet music: read a line of real notation. "Wait for me" holds the playhead on each note until you find it;
+// "In time" runs the playhead at the reading tempo and marks each note in time, late, or missed.
+const READ = {piece: 'video', key: 'Bb', mode: 'wait', bpm: 70, sargam: true, hint: true, hear: true};
+try { Object.assign(READ, JSON.parse(localStorage.getItem('improv-read') || '{}')); } catch (e) {}
+const saveRead = () => { try { localStorage.setItem('improv-read', JSON.stringify(READ)); } catch (e) {} };
+const RD = {piece: null, stage: 'idle', t0: 0, i: 0, next: 0, status: {}, slips: 0, here: false, ghost: null, score: 0, msg: '', msgCol: 'white', good: false, layout: null, drawn: ''};
+const readBeat = () => 60000 / READ.bpm;
+const readPiece = () => Score.fourths(READ.key, READ.piece);
+function click(accent){ if (!actx) return; const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain(); o.type = 'square'; o.frequency.value = accent ? 1760 : 1320;
+  g.gain.setValueAtTime(accent ? 0.09 : 0.06, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.05); o.connect(g).connect(actx.destination); o.start(t); o.stop(t + 0.06); }
+function chime(){ [79, 84].forEach((p, i) => setTimeout(() => { noteOn(p, 70, 0.5, CH.mel); setTimeout(() => noteOff(p, CH.mel), 450); }, i * 110)); }
+function readStage(stage, at = performance.now()){
+  RD.stage = stage; RD.t0 = at; RD.next = 0; RD.clicked = -1;
+  phase = stage === 'listen' ? 'answer' : 'you';
+  if (stage === 'count') { RD.msg = 'ready'; RD.msgCol = 'white'; }
+  if (stage === 'listen') { RD.msg = 'listen'; RD.msgCol = 'white'; }
+  if (stage === 'you') { RD.status = {}; RD.i = 0; RD.slips = 0; RD.here = false; RD.ghost = null; RD.good = false;
+    RD.msg = READ.mode === 'wait' ? 'your turn · take your time' : 'your turn · in time'; RD.msgCol = 'yellow'; }
+  showTurn();
+}
+// a round: [count-in] → [Magenta plays it, if "hear it first"] → [a bar's count, when it's in time] → you
+function readRound(at = performance.now()){
+  RD.afterCount = READ.hear ? 'listen' : 'you';
+  if (READ.hear || READ.mode === 'time') readStage('count', at); else readStage('you', at);
+}
+function readStart(){ RD.piece = readPiece(); RD.score = 0; RD.good = false; curChord = null; readRound(t0); }
+function readFinish(){
+  const N = RD.piece.notes.length;
+  if (READ.mode === 'wait') {
+    RD.good = RD.slips === 0; if (RD.good) RD.score++;
+    RD.msg = RD.good ? '✓ clean read!' : `✓ done · ${RD.slips} slip${RD.slips > 1 ? 's' : ''}`; RD.msgCol = RD.good ? 'green' : 'yellow'; chime();
+  } else {
+    const hits = Object.values(RD.status).filter(v => v === 'ok').length;
+    RD.good = hits === N; if (RD.good) { RD.score++; chime(); } else buzz();
+    RD.msg = RD.good ? '✓ in time!' : `${hits} of ${N} in time`; RD.msgCol = RD.good ? 'green' : 'pink';
+  }
+  streak = RD.score; showStreak();
+  RD.stage = 'done'; RD.t0 = performance.now(); RD.ghost = null;
+}
+function readTick(){
+  if (!RD.piece) return;
+  const now = performance.now(), beat = (now - RD.t0) / readBeat(), notes = RD.piece.notes;
+  if (RD.stage === 'count') {
+    const k = Math.floor(beat); if (k > RD.clicked && k < 4) { RD.clicked = k; click(k === 0); }
+    if (beat >= 4) { const nx = RD.afterCount; RD.afterCount = 'you'; readStage(nx, RD.t0 + 4 * readBeat()); }
+  } else if (RD.stage === 'listen') {
+    while (RD.next < notes.length && notes[RD.next].beat <= beat) {
+      const n = notes[RD.next++], ms = n.dur * readBeat() * 0.92;
+      noteOn(n.midi, 88, ms / 1000, CH.mel); curNote = n.midi; magSounding.add(n.midi);
+      setTimeout(() => { noteOff(n.midi, CH.mel); magSounding.delete(n.midi); if (curNote === n.midi) curNote = null; }, ms);
+    }
+    if (beat >= RD.piece.beats + 0.5) {            // then it's yours: straight away when you can take your time, after a bar's count when it's in time
+      curNote = null;
+      if (READ.mode === 'time') readStage('count', RD.t0 + Math.ceil(RD.piece.beats) * readBeat()); else readStage('you');
+    }
+  } else if (RD.stage === 'you' && READ.mode === 'time') {
+    const W = 0.25;
+    notes.forEach((n, j) => { if (!RD.status[j] && beat > n.beat + W) RD.status[j] = 'miss'; });
+    if (beat > RD.piece.beats + 0.5) readFinish();
+  } else if (RD.stage === 'done') {
+    if (now - RD.t0 > readBeat() * 3) readRound();
+  }
+}
+function readNote(p){
+  if (RD.stage !== 'you' || !RD.piece) return;
+  const notes = RD.piece.notes, pc = p % 12;
+  if (READ.mode === 'wait') {
+    const n = notes[RD.i]; if (!n) return;
+    if (pc === n.pc) { RD.status[RD.i] = RD.here ? 'slip' : 'ok'; RD.i++; RD.here = false; RD.ghost = null; if (RD.i >= notes.length) readFinish(); }
+    else { RD.ghost = {midi: p, i: RD.i}; if (!RD.here) RD.slips++; RD.here = true; }
+    return;
+  }
+  const beat = (performance.now() - RD.t0) / readBeat(), W = 0.25;
+  const j = notes.findIndex((n, k) => !RD.status[k] && Math.abs(beat - n.beat) <= W && n.pc === pc);
+  if (j >= 0) { RD.status[j] = 'ok'; RD.ghost = null; return; }
+  const near = notes.findIndex((n, k) => !RD.status[k] && Math.abs(beat - n.beat) <= W);
+  RD.ghost = {midi: p, i: near >= 0 ? near : Math.max(0, Math.min(notes.length - 1, Math.round(beat * 3)))};
+}
+function readExpected(){            // the note to play now, or -1
+  if (RD.stage !== 'you' || !RD.piece) return -1;
+  if (READ.mode === 'wait') return RD.i < RD.piece.notes.length ? RD.i : -1;
+  const beat = (performance.now() - RD.t0) / readBeat();
+  const j = RD.piece.notes.findIndex((n, k) => !RD.status[k] && beat <= n.beat + 0.25);
+  return j;
+}
+// the card: re-engraved only when something on it changes; the playhead moves every frame
+function drawScore(){
+  if (game !== 'read' || !(typeof Score !== 'undefined') || !window.VexFlow) return;
+  if (!RD.piece || (!playing && RD.piece.title !== readPiece().title)) RD.piece = readPiece();
+  const el = $('scoreSvg'), notes = RD.piece.notes, beat = (performance.now() - RD.t0) / readBeat();
+  const timed = playing && (RD.stage === 'listen' || (RD.stage === 'you' && READ.mode === 'time'));
+  const f = timed ? Math.max(0, beat * 3) : 0;
+  let cur = !playing ? 0 : RD.stage === 'you' ? (READ.mode === 'wait' ? RD.i : Math.min(notes.length - 1, Math.floor(f + 0.5))) : RD.stage === 'listen' ? Math.min(notes.length - 1, Math.floor(f)) : RD.stage === 'done' ? notes.length - 1 : 0;
+  const who = !playing ? null : RD.stage === 'listen' ? (curNote != null ? 'mag' : null) : RD.stage === 'you' && READ.mode === 'wait' ? 'you' : null;
+  const W = el.clientWidth || 600, perLine = W >= 900 && RD.piece.notes.length > 12 ? 24 : 12;
+  const shown = playing && (RD.stage === 'you' || RD.stage === 'done') ? RD.status : {}, ghost = playing ? RD.ghost : null;
+  const key = JSON.stringify([RD.piece.title, W, who ? cur : -1, who, shown, ghost, READ.sargam, Math.floor(cur / perLine)]);
+  if (key !== RD.drawn) {
+    RD.drawn = key;
+    try {
+      RD.layout = Score.render(el, RD.piece, {status: shown, cur, who, ghost, sargam: READ.sargam ? sar : null, perLine});
+      $('scorePg').textContent = RD.layout.lines > 1 ? `line ${RD.layout.line + 1} of ${RD.layout.lines}` : '';
+    } catch (e) { console.warn('score', e); }
+  }
+  if (RD.sized !== RD.drawn + playing) {            // shrink the painting to leave room for the card (and the picker, before Play)
+    RD.sized = RD.drawn + playing;
+    const h = $('score').offsetHeight + (playing ? 0 : $('gamepick').offsetHeight);
+    document.documentElement.style.setProperty('--scoreH', (h + 16) + 'px');
+  }
+  const L = RD.layout, c = $('scoreCur');
+  if (!L || !playing || RD.stage === 'count' || RD.stage === 'done') { c.style.display = 'none'; return; }
+  let x;
+  const at = k => L.xs[Math.max(0, Math.min(L.xs.length - 1, k - L.from))].x;
+  if (timed) { const k = Math.floor(f), fr = f - k; x = k + 1 < L.to ? at(k) + (at(k + 1) - at(k)) * fr : at(Math.min(k, L.to - 1)) + 30 * fr; }
+  else x = at(cur) - 13;
+  if (cur < L.from || cur >= L.to) { c.style.display = 'none'; return; }
+  c.style.display = 'block'; c.className = 'cur' + (RD.stage === 'listen' ? ' mag' : '');
+  c.style.left = x + 'px'; c.style.top = L.top + 'px'; c.style.height = (L.bottom - L.top) + 'px';
+}
+window.addEventListener('resize', () => { RD.drawn = ''; drawScore(); });
 // ---- trading bars: a strict clock. Bar 0 counts you in; then you get a bar, Magenta gets a bar, on the same chord.
 // Land the chord (all its notes together) somewhere in your bar and the next chord is yours; miss it and you go again.
 // Magenta starts composing on beat 3 of your bar, so its answer comes in exactly on the downbeat.
@@ -1189,6 +1327,7 @@ async function planBar(ansStart){
 }
 
 function tradeTick(){
+  if (game === 'read') { readTick(); draw(); return; }
   const k = Math.floor(stepPos());
   if (game !== 'free') gameTick(stepPos());
   else if (endMode === 'bar') barTick(stepPos());
@@ -1231,6 +1370,7 @@ function startTrade(){
   Object.assign(G, {pb: 0, hit: [], got: [], lastKey: '', seg: -1, stage: 'count', ri: -1, round: null, next: null, mine: [], score: 0, wins: 0, misses: 0, solved: false, revealing: false, reveal: [], revealUntil: 0, msg: ''});
   if (endMode === 'bar') { gi = 0; curChord = seqList[0]; covered = new Set(); struckThis = false; } else resetToYou();
   changes = [{step: 0, c: seqList[0]}];
+  if (game === 'read') readStart();
   startBand(t0);
   showTurn();
   timer = setInterval(() => { if (performance.now() >= t0) tradeTick(); }, 8);
@@ -1472,6 +1612,7 @@ function stop(){
   outs.forEach(o => { try { o.send([0xB0 | CH.pad, 64, 0]); } catch (e) {} }); padNotes.forEach(p => noteOff(p, CH.pad)); padNotes = []; padChord = null;
   stopBand(); document.body.classList.remove('playing', 'turn-you', 'turn-mag', 'turn-think');
   playing = false; clearInterval(timer); clearTimeout(nextPass); queue = [];
+  RD.stage = 'idle'; RD.drawn = '';
   token++; allOff(); curChord = null; curNote = null; pending = []; magSounding.clear(); youNow.clear(); chordHand.clear(); covered = new Set(); struckThis = false; cancelPrep(); tingedAt = -1; compNow.clear(); compSounding.clear(); $('turn').textContent = ''; draw();
   $('play').disabled = !rnn; $('stop').disabled = true; status();
 }
@@ -1541,6 +1682,16 @@ function draw(){
     const magTurn = phase === 'answer' || phase === 'think', yours = playing && mode === 'trade' && !magTurn;
     const order = c => [...c.tones].sort((a, b) => ((a - c.root + 12) % 12) - ((b - c.root + 12) % 12));
     const n = seqList.length || section().length, heldNow = new Set([...youNow, ...chordHand].map(p => p % 12));
+    if (game === 'read') {
+      drawScore();
+      const nx = readExpected(), np = nx >= 0 ? RD.piece.notes[nx].pc : -1, listen = RD.stage === 'listen', beat = (performance.now() - RD.t0) / readBeat();
+      Duo.update({you: [...youNow, ...chordHand].map(p => p % 12), mel: listen && curNote != null ? curNote % 12 : -1, magchord: [],
+                  tones: playing && READ.hint && np >= 0 ? [np] : [], right: np >= 0 ? [np] : [], covered: [],
+                  turn: !playing ? null : listen ? 'mag' : RD.stage === 'done' && RD.good ? 'good' : 'you', count: RD.stage === 'count',
+                  chord: playing && RD.piece ? {name: lettered(RD.piece.title.replace('4ths up & down · ', '4ths ↕ ')), notes: [], step: '★' + RD.score, label: 'READ ' + (READ.mode === 'wait' ? 'slow' : READ.bpm), msg: RD.msg, msgCol: RD.msgCol} : null,
+                  beat: playing && (RD.stage === 'count' || RD.stage === 'listen' || (RD.stage === 'you' && READ.mode === 'time')) && beat >= 0 ? {i: Math.floor(beat) % 4, who: RD.stage === 'count' ? 'count' : listen ? 'mag' : 'you'} : null});
+      return;
+    }
     if (game !== 'free' && playing) {
       const gs = gameState();
       Duo.update({you: [...youNow, ...chordHand].map(p => p % 12), mel: gs.hideMag ? -1 : curNote == null ? -1 : curNote % 12,
@@ -1819,7 +1970,17 @@ function renderGames(){
   $('gameChips').innerHTML = Object.entries(GAMES).map(([id, g]) => `<div class="chip${id === game ? ' on' : ''}" data-g="${id}">${g.name}</div>`).join('');
   $('gameBlurb').textContent = GAMES[game].blurb;
   $('gameFind').style.display = game === 'free' ? 'none' : 'flex';
-  if (game === 'twofive') {     // a ii–V–I is four bars, so you get whole tries at it rather than bars
+  document.body.classList.toggle('reading', game === 'read');
+  if (game === 'read') {
+    const grp = (label, field, opts) => `<span>${label}</span>` + opts.map(([v, t]) => `<div class="chip${READ[field] === v ? ' on' : ''}" data-r="${field}" data-v="${v}">${t}</div>`).join('');
+    const tg = (field, t) => `<div class="chip tg${READ[field] ? ' on' : ''}" data-t="${field}">${READ[field] ? '✓ ' : ''}${t}</div>`;
+    $('gameFind').innerHTML = grp('', 'piece', [['video', 'From the video'], ['updown', 'Up & down']]) + '<i class="sep"></i>' +
+      grp('', 'key', [['Bb', 'B♭'], ['Eb', 'E♭']]) + '<i class="sep"></i>' + grp('', 'mode', [['wait', 'Wait for me'], ['time', 'In time']]) + '<i class="sep"></i>' +
+      grp('', 'bpm', [[50, '50'], [70, '70'], [90, '90']]) + '<span>bpm</span><i class="sep"></i>' + tg('hear', 'Hear it first') + tg('sargam', 'Sargam') + tg('hint', 'Light the key');
+    $('gameFind').querySelectorAll('[data-r]').forEach(el => el.onclick = () => { const f = el.dataset.r; READ[f] = f === 'bpm' ? +el.dataset.v : el.dataset.v; saveRead(); RD.piece = null; RD.drawn = ''; renderGames(); });
+    $('gameFind').querySelectorAll('[data-t]').forEach(el => el.onclick = () => { READ[el.dataset.t] = !READ[el.dataset.t]; saveRead(); RD.drawn = ''; renderGames(); });
+    if ((typeof Score !== 'undefined')) Score.ready().then(() => { RD.drawn = ''; drawScore(); });
+  } else if (game === 'twofive') {     // a ii–V–I is four bars, so you get whole tries at it rather than bars
     $('gameFind').innerHTML = '<span>Tries</span>' + [1, 2, 3].map(n => `<div class="chip${n === tries251 ? ' on' : ''}" data-t="${n}">${n}</div>`).join('');
     $('gameFind').querySelectorAll('.chip').forEach(el => el.onclick = () => { tries251 = +el.dataset.t; try { localStorage.setItem('improv-tries', tries251); } catch (e) {} renderGames(); });
   } else {
